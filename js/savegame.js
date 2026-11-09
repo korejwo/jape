@@ -107,6 +107,11 @@
   }
 
   SaveGame.load = function (bytes, filename) {
+    // JA2 1.13 v5 saves have their own module.
+    if (bytes.length >= 4 && J.SaveGame113 &&
+        (bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24)) === J.SaveGame113.VERSION) {
+      return J.SaveGame113.load(bytes, filename);
+    }
     var game = new SaveGame(bytes, filename);
     game.load();
     return game;
@@ -122,10 +127,11 @@
     } else if (this.version === 103) {
       layout = LAYOUT[103];
     } else {
-      throw new FormatError('Save game version ' + this.version + ' not supported.  ' +
-        'Supported values are 95, 96, 97, 97, 99 and 103');
+      throw new FormatError('Save game version ' + this.version + ' not supported.\n' +
+        'Supported values are 95-99 (JA2 1.0x), 103 (JA2 1.13, 2008) and 185 (JA2 1.13 v5).');
     }
     this.layout = layout;
+    this.formatLabel = this.version <= 99 ? 'JA2 1.0x' : 'JA2 1.13 (2008)';
 
     r.seek(layout.uiNumGameEvents_Offset);
     var eventCount = r.readIntLE();

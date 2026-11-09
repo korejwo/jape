@@ -18,7 +18,7 @@ const path = require('path');
 const vm = require('vm');
 
 const WEB = path.resolve(__dirname, '..');
-const SCRIPTS = ['codetables.js', 'items.js', 'alg.js', 'fields.js', 'model.js', 'savegame.js'];
+const SCRIPTS = ['codetables.js', 'items.js', 'alg.js', 'fields.js', 'model.js', 'savegame.js', 'savegame113.js'];
 
 function loadEngine() {
   const ctx = vm.createContext({});
@@ -210,7 +210,54 @@ for (const f of files) {
         check(f + ': edited fields match Java', dump(reloaded) === javaDump, firstLineDiff(dump(reloaded), javaDump));
       }
     }
+  } else if (edited.version === J.SaveGame113.VERSION) {
+    test113(f, edited);
   }
+}
+
+/** JA2 1.13 v5: edit a team member (soldier + profile) and a profile, save, reload. */
+function test113(f, game) {
+  check(f + ': 255 profiles, all checksums valid', game.actors.length === 255);
+  const team = game.mercs.filter((m) => m.isOnPlayerTeam());
+  check(f + ': team members are linked to their profiles by number',
+    team.length > 0 && team.every((m) => game.actorMercs[m.getInt('ubProfile')] === m));
+  const merc = team[0];
+  const index = merc.getInt('ubProfile');
+  const both = new J.Chain([merc, game.actors[index]]);
+  const traitId = game.traits.valueOf('Doctor') !== undefined ? game.traits.valueOf('Doctor') : 3;
+  both.set('Strength', '95');
+  both.set('Max Health', '99');
+  both.set('Health', '99');
+  both.set('Marksmanship', '127');
+  both.set('Level', '7');
+  both.setInt('Skill3', traitId);
+  both.set('Energy', '88');
+  both.set('Morale', '77');
+  both.set('Kills', '1234');
+  both.set('Agility Inc', '3');
+  both.set('Nickname', 'Tester');
+  const other = game.actors.findIndex((a, i) => !game.actorMercs[i] && a.get('Nickname') === 'Fox');
+  if (other !== -1) { game.actors[other].set('Wisdom', '81'); }
+
+  const out = game.save();
+  check(f + ': edited save keeps its size', out.length === game.bytes.length);
+  let back = null;
+  try { back = J.SaveGame.load(out, f); } catch (e) { check(f + ': edited save reloads', false, e.message); return; }
+  check(f + ': edited save reloads with valid checksums', true);
+  const m2 = back.actorMercs[index];
+  const p2 = back.actors[index];
+  check(f + ': soldier edits persisted', m2 && m2.getInt('Strength') === 95 && m2.getInt('Marksmanship') === 127 &&
+    m2.getInt('Level') === 7 && m2.getInt('Skill3') === traitId && m2.getInt('Energy') === 88 &&
+    m2.getInt('Morale') === 77 && m2.get('Nickname') === 'Tester');
+  check(f + ': profile edits persisted', p2.getInt('Strength') === 95 && p2.getInt('Kills') === 1234 &&
+    p2.getInt('Agility Inc') === 3 && p2.get('Nickname') === 'Tester' && p2.getInt('Health') === 99);
+  if (other !== -1) { check(f + ': unhired profile edit persisted', back.actors[other].getInt('Wisdom') === 81); }
+  const changed = [];
+  for (let i = 0; i < out.length; ++i) { if (out[i] !== game.bytes[i]) { changed.push(i); } }
+  const inside = (o, rec) => o >= rec.offset && o < rec.offset + rec.data.length;
+  const touched = [merc, game.actors[index]].concat(other !== -1 ? [game.actors[other]] : []);
+  check(f + ': only the edited records changed (' + changed.length + ' bytes)',
+    changed.length > 0 && changed.every((o) => touched.some((rec) => inside(o, rec))));
 }
 
 console.log(failures === 0 ? '\nAll checks passed.' : '\n' + failures + ' check(s) FAILED.');

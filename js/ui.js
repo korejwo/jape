@@ -226,7 +226,7 @@
     }
     function choiceRow(title, field) {
       var options = J.SKILL_NAMES.map(function (n, i) { return { id: i, name: n }; });
-      $('<tr>').append(td('lbl', title),
+      return $('<tr>').append(td('lbl', title),
         td(null).attr('colspan', 6).append(view(new ChoiceView(field, 'skill', options)))).appendTo($body);
     }
 
@@ -248,6 +248,8 @@
     incRow('Exp Lvl', 'Level', 'Level Inc');
     choiceRow('Skill1', 'Skill1');
     choiceRow('Skill2', 'Skill2');
+    // JA2 1.13 characters can have more traits; shown only for those saves.
+    this.$skill3Row = choiceRow('Skill3', 'Skill3').hide();
     byteRow('Kills', 'Kills');
     byteRow('Assists', 'Assists');
     byteRow('Shots Fired', 'Shots Fired');
@@ -264,9 +266,15 @@
     var struct = actor ? new J.Chain([merc, actor]) : null;
     this.views.forEach(function (v) {
       v.setStruct(struct);
+      var f = v.field();
+      // Skill names depend on the save (JA2 1.0x skills or 1.13 traits).
+      if (f && f.names) { v.setOptions(f.names.options()); }
       v.refresh();
-      v.setEnabled(editable && !!struct);
+      v.setEnabled(editable && !!f);
     });
+    var hasSkill3 = !!struct && struct.has('Skill3');
+    this.$skill3Row.toggle(hasSkill3);
+    $('.app').toggleClass('tall', hasSkill3);
   };
 
   // ===========================================================================
@@ -1038,8 +1046,8 @@
     $('[data-cmd="save"], [data-cmd="saveAs"], [data-cmd="close"]').prop('disabled', !hasGame);
     var info = '';
     if (hasGame) {
-      info = this.fileName + (this.modified ? ' (modified)' : '') + ' — JA2 ' +
-        (this.game.version <= 99 ? '1.0x' : '1.13') + ' save, version ' + this.game.version;
+      info = this.fileName + (this.modified ? ' (modified)' : '') + ' — ' +
+        this.game.formatLabel + ' save, version ' + this.game.version;
       if (!canOverwrite) { info += ' — Save downloads a copy'; }
     }
     $('#status-file').text(info);

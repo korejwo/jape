@@ -42,6 +42,9 @@ body {
   min-height: 545px;
 }
 
+/* JA2 1.13 saves show an extra Skill3 row. */
+.app.tall { min-height: 566px; }
+
 /* ---- Menu bar ---------------------------------------------------------------- */
 
 .menubar {

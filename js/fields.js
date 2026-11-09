@@ -40,10 +40,21 @@
   NumericField.prototype.get = function (data) { return String(this.getInt(data)); };
   NumericField.prototype.set = function (data, str) { this.setInt(data, parseIntStrict(str)); };
 
-  function ByteField(offset) { NumericField.call(this, offset, 1, 0, 0xFF); }
+  /**
+   * Unsigned byte. `max` lowers the accepted input range, e.g. 127 for game
+   * fields that are really INT8 (stats, item status): the original JAPE read
+   * them as unsigned, so the displayed value is kept unsigned for those.
+   */
+  function ByteField(offset, max) { NumericField.call(this, offset, 1, 0, max === undefined ? 0xFF : max); }
   ByteField.prototype = Object.create(NumericField.prototype);
   ByteField.prototype.getInt = function (data) { return data[this.offset]; };
   ByteField.prototype.setInt = function (data, value) { data[this.offset] = value & 0xFF; };
+
+  /** Signed byte (INT8), as JA2 1.13 stores stats. */
+  function SByteField(offset) { NumericField.call(this, offset, 1, -0x80, 0x7F); }
+  SByteField.prototype = Object.create(NumericField.prototype);
+  SByteField.prototype.getInt = function (data) { return (data[this.offset] << 24) >> 24; };
+  SByteField.prototype.setInt = function (data, value) { data[this.offset] = value & 0xFF; };
 
   function ShortField(offset) { NumericField.call(this, offset, 2, 0, 0xFFFF); }
   ShortField.prototype = Object.create(NumericField.prototype);
@@ -129,6 +140,7 @@
 
   /** Two-way value <-> name table for ChoiceField. */
   function NameTable(pairs) {
+    this.pairs = pairs;
     this.byValue = {};
     this.byName = {};
     for (var i = 0; i < pairs.length; ++i) {
@@ -142,6 +154,10 @@
   };
   NameTable.prototype.valueOf = function (name) {
     return Object.prototype.hasOwnProperty.call(this.byName, name) ? this.byName[name] : undefined;
+  };
+  /** Choices in table order, as [{id, name}]. */
+  NameTable.prototype.options = function () {
+    return this.pairs.map(function (p) { return { id: p[0], name: p[1] }; });
   };
 
   // ---- Structures --------------------------------------------------------------
@@ -209,6 +225,7 @@
   J.NumberFormatError = NumberFormatError;
   J.parseIntStrict = parseIntStrict;
   J.ByteField = ByteField;
+  J.SByteField = SByteField;
   J.ShortField = ShortField;
   J.IntField = IntField;
   J.StringField = StringField;
