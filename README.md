@@ -97,6 +97,22 @@ Supported saves:
 - JA2 1.0x saves: Agility, Dexterity, Strength, Wisdom, Marksmanship,
   Explosives, Mechanical and Medical have **+1** and **+10** buttons. They raise
   the value, up to 100, and the increase in brackets by the same number of points.
+- JA2 1.0x saves: **Full Dress** (under the leg armour slot) puts on Coated
+  Spectra Helmet, Coated Spectra Vest with 4 Ceramic Plates, Coated Spectra
+  Leggings, Night Vision Goggles and Extended Ear, all at 100%, replacing what
+  is in those five slots. The stored weight is set as the game computes it
+  (item + attachments, JA2 1.12 weights). The game uses one plate at a time and
+  removes a plate when it is destroyed, so the next one takes over.
+- JA2 1.0x saves: **Add LAW** creates 6 LAWs stacked in one slot, **Add rifle**
+  an Auto Rocket Rifle loaded with 255 HEAP minirockets. Both go into the first
+  empty slot searching from the last one (small pockets first), skipping slots
+  the slot rules forbid (armour and head gear slots, a hand blocked by a
+  two-handed weapon). They are built the way the game creates items
+  (`CreateGun`/`CreateItems`): status 100, not fingerprint-locked (the rifle
+  locks to the first merc who uses it), weight as the game computes it.
+  The game itself allows one LAW per slot and only in big pockets or hands;
+  firing a LAW turns the whole object in the hand into one discarded LAW, so
+  fire LAWs one at a time, not from the stack of 6.
 - Added: Save As..., status bar, unsaved-changes warning when closing the tab.
 
 ## Tests

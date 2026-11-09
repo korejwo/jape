@@ -143,7 +143,7 @@
     'Unknown 1': B(0x1C),
     'Unknown 2': B(0x1D),
     'Unknown 3': B(0x1E),
-    'Unknown 4': B(0x1F),
+    'Unknown 4': B(0x1F),           // ubImprintID: merc a gun is fingerprint-locked to
     'Weight': S(0x20)
   };
 
@@ -383,6 +383,94 @@
       raw.set(this.data, 1);
     }
     return raw;
+  };
+
+  // ---- Full Dress --------------------------------------------------------------------
+
+  /**
+   * "Full Dress": the best JA2 1.0x armour and head gear, put into the
+   * armour and head slots (replacing what is there).
+   */
+  J.FULL_DRESS = [
+    { slot: Mercenary.HELMET, id: 0xB6 },                                   // Coated Spectra Helmet
+    { slot: Mercenary.BODY_ARMOR, id: 0xA9, attachments: [0xB7, 0xB7, 0xB7, 0xB7] }, // Coated Spectra Vest, 4 Ceramic Plates
+    { slot: Mercenary.LEG_ARMOR, id: 0xAF },                                // Coated Spectra Leggings
+    { slot: Mercenary.HEADGEAR_1, id: 0xD3 },                               // Night Vision Goggles
+    { slot: Mercenary.HEADGEAR_2, id: 0xD2 }                                // Extended Ear
+  ];
+
+  /**
+   * Item weights (ubWeight, 0.1 kg) of the JA2 1.12 item data as published by
+   * the JA2 Stracciatella project. The game stores an object's weight as the
+   * item's weight plus its attachments'.
+   */
+  J.ITEM_WEIGHTS = { 0x33: 21, 0x41: 40, 0x71: 10, 0xA9: 29, 0xAF: 35, 0xB6: 13, 0xB7: 12, 0xD2: 9, 0xD3: 9 };
+
+  var NO_PROFILE = 200;
+  var LAW = 0x33;
+  var AUTO_ROCKET_RIFLE = 0x41;
+  var MINIROCKETS_HEAP = 0x71;
+  var AMMO_HEAT = 10;
+
+  /**
+   * A stack of LAWs, built like the game's CreateItems(): CreateGun(LAW)
+   * (status 100, one rocket, not fingerprint-locked), then the status of each
+   * further LAW in bStatus[1..]. Those bytes share space with the gun data,
+   * exactly as when the game itself stacks guns. Weight is that of one LAW,
+   * as CreateItem() computes it.
+   */
+  J.makeLawStack = function (item, count) {
+    item.data.fill(0);
+    item.setInt('Item ID', LAW);
+    item.setInt('Item 1 %', 100);              // bGunStatus
+    item.setInt('Ammo Quantity', 1);           // ubGunShotsLeft
+    item.setInt('Ammo %', 100);                // bGunAmmoStatus
+    item.setInt('Unknown 4', NO_PROFILE);     // ubImprintID
+    item.setInt('Weight', J.ITEM_WEIGHTS[LAW]);
+    for (var k = 2; k <= count; ++k) { item.setInt('Item ' + k + ' %', 100); }
+    item.setInt('Quantity', count);
+  };
+
+  /**
+   * An Auto Rocket Rifle (CreateGun: status 100, not fingerprint-locked,
+   * so it locks to the first merc who uses it) loaded with HEAP minirockets.
+   * Weight: rifle + magazine, as the game computes it for a loaded gun.
+   */
+  J.makeRocketRifle = function (item, rounds) {
+    item.data.fill(0);
+    item.setInt('Item ID', AUTO_ROCKET_RIFLE);
+    item.setInt('Quantity', 1);
+    item.setInt('Item 1 %', 100);              // bGunStatus
+    item.setInt('Ammo Variety', AMMO_HEAT);    // ubGunAmmoType
+    item.setInt('Ammo Quantity', rounds);      // ubGunShotsLeft (UINT8)
+    item.setInt('Ammo ID', MINIROCKETS_HEAP);  // usGunAmmoItem
+    item.setInt('Ammo %', 100);                // bGunAmmoStatus
+    item.setInt('Unknown 4', NO_PROFILE);     // ubImprintID
+    item.setInt('Weight', J.ITEM_WEIGHTS[AUTO_ROCKET_RIFLE] + J.ITEM_WEIGHTS[MINIROCKETS_HEAP]);
+  };
+
+  J.QUICK_ITEMS = {
+    law: { id: LAW, label: 'LAW ×6', make: function (item) { J.makeLawStack(item, 6); } },
+    rifle: { id: AUTO_ROCKET_RIFLE, label: 'Auto Rocket Rifle', make: function (item) { J.makeRocketRifle(item, 255); } }
+  };
+
+  /** Puts on the Full Dress set: new items, 100%, plates attached at 100%. */
+  Mercenary.prototype.fullDress = function () {
+    var items = this.items;
+    J.FULL_DRESS.forEach(function (piece) {
+      var item = items[piece.slot];
+      item.data.fill(0);                       // a fresh object, like CreateItem
+      item.setInt('Item ID', piece.id);
+      item.setInt('Quantity', 1);
+      item.setInt('Item 1 %', 100);
+      var weight = J.ITEM_WEIGHTS[piece.id];
+      (piece.attachments || []).forEach(function (id, k) {
+        item.setInt('Attachment ' + (k + 1) + ' ID', id);
+        item.setInt('Attachment ' + (k + 1) + ' %', 100);
+        weight += J.ITEM_WEIGHTS[id];
+      });
+      item.setInt('Weight', weight);
+    });
   };
 
   J.ItemExemplar = ItemExemplar;

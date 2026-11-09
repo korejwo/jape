@@ -629,6 +629,24 @@
       row.forEach(function (slot, c) { SLOT_NAMES[slot] = 'Backpack ' + (r + 1) + '-' + (c + 1); });
     });
 
+    // Full Dress: in the free cell under the leg armour slot.
+    this.$fullDress = $('<button type="button" class="btn action full-dress">')
+      .text('Full Dress')
+      .attr('title', 'Put on Coated Spectra Helmet, Coated Spectra Vest with 4 Ceramic Plates, ' +
+        'Coated Spectra Leggings, Night Vision Goggles and Extended Ear (replaces the items in those slots)')
+      .css({ gridRow: '4', gridColumn: '3' })
+      .on('click', function () { self.fullDress(); });
+    // Add LAW / Add rifle: in the free middle cells next to Full Dress.
+    this.$addLaw = $('<button type="button" class="btn action add-law">').text('Add LAW')
+      .attr('title', 'Create 6 LAWs in one slot: the first empty slot, searching from the last one')
+      .css({ gridRow: '3', gridColumn: '2' })
+      .on('click', function () { self.addQuickItem('law'); });
+    this.$addRifle = $('<button type="button" class="btn action add-rifle">').text('Add rifle')
+      .attr('title', 'Create an Auto Rocket Rifle with 255 HEAP minirockets: the first empty slot, searching from the last one')
+      .css({ gridRow: '4', gridColumn: '2' })
+      .on('click', function () { self.addQuickItem('rifle'); });
+    $slots.append(this.$fullDress, this.$addLaw, this.$addRifle);
+
     this.$note = $('<p class="item-note">').text('Item editing is not supported for JA2 1.13 save games.');
     var $detail = $('<div class="detail">');
     $root.append($slots, this.$note, $detail);
@@ -650,7 +668,49 @@
     this.mode = mode;
     this.refreshButtons();
     this.$note.toggleClass('shown', mode === 'unsupported');
+    [this.$fullDress, this.$addLaw, this.$addRifle].forEach(function ($b) {
+      $b.toggle(mode !== 'unsupported').prop('disabled', mode !== 'edit' || !this.merc);
+    }, this);
     this.selectSlot(SLOT_ROWS[0][0]);
+  };
+
+  /**
+   * Creates a ready-made item (J.QUICK_ITEMS) in the first empty slot,
+   * searching from the last slot down. Slots that would not accept the item
+   * under the slot rules (armour and head gear slots, hands blocked by a
+   * two-handed weapon) are skipped.
+   */
+  ItemPanel.prototype.addQuickItem = function (key) {
+    if (this.mode !== 'edit' || !this.merc) { return; }
+    var quick = J.QUICK_ITEMS[key];
+    var ex = J.exemplar(quick.id);
+    var slot = -1;
+    for (var s = this.merc.items.length - 1; s >= 0; --s) {
+      if (this.merc.items[s].getInt('Item ID') !== 0) { continue; }
+      var filter = SLOT_FILTERS[s];
+      if (filter && !filter(ex)) { continue; }
+      if (s === M.LEFT_HAND && this.twoHandedInRightHand()) { continue; }
+      if (this.checkItem(s, quick.id)) { continue; }
+      slot = s;
+      break;
+    }
+    if (slot === -1) {
+      messageDialog('No free slot for ' + quick.label + '.');
+      return;
+    }
+    quick.make(this.merc.items[slot]);
+    this.refreshButtons();
+    this.selectSlot(slot);
+    this.onChanged();
+  };
+
+  /** Puts on the Full Dress set, replacing what is in those slots. */
+  ItemPanel.prototype.fullDress = function () {
+    if (this.mode !== 'edit' || !this.merc) { return; }
+    this.merc.fullDress();
+    this.refreshButtons();
+    this.selectSlot(J.FULL_DRESS[1].slot);   // show the vest with its plates
+    this.onChanged();
   };
 
   ItemPanel.prototype.itemAt = function (slot) {

@@ -210,9 +210,54 @@ for (const f of files) {
         check(f + ': edited fields match Java', dump(reloaded) === javaDump, firstLineDiff(dump(reloaded), javaDump));
       }
     }
+    testFullDress(f, new Uint8Array(orig));
+    testQuickItems(f, new Uint8Array(orig));
   } else if (edited.version === J.SaveGame113.VERSION) {
     test113(f, edited);
   }
+}
+
+/** JA2 1.0x: Full Dress on the first team member, save, reload. */
+function testFullDress(f, bytes) {
+  const game = J.SaveGame.load(bytes, f);
+  const merc = game.mercs.find((m) => m.isOnPlayerTeam() && m.items);
+  merc.fullDress();
+  let back = null;
+  try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': Full Dress save reloads', false, e.message); return; }
+  const items = back.mercs.find((m) => m.slot === merc.slot).items;
+  const got = J.FULL_DRESS.map((p) => {
+    const it = items[p.slot];
+    return [it.get('Item ID'), it.getInt('Quantity'), it.getInt('Item 1 %'), it.getInt('Weight'),
+      [1, 2, 3, 4].map((k) => it.getInt('Attachment ' + k + ' ID') + ':' + it.getInt('Attachment ' + k + ' %')).join(' ')].join('|');
+  });
+  const none = '0:0 0:0 0:0 0:0';
+  const plates = '183:100 183:100 183:100 183:100';
+  check(f + ': Full Dress reloads with valid checksums and the right items', JSON.stringify(got) === JSON.stringify([
+    'Coated Spectra Helmet|1|100|13|' + none,
+    'Coated Spectra Vest|1|100|77|' + plates,
+    'Coated Spectra Leggings|1|100|35|' + none,
+    'Night Vision Goggles|1|100|9|' + none,
+    'Extended Ear|1|100|9|' + none]), got);
+}
+
+/** JA2 1.0x: LAW x6 and Auto Rocket Rifle with 255 HEAP rounds, save, reload. */
+function testQuickItems(f, bytes) {
+  const game = J.SaveGame.load(bytes, f);
+  const merc = game.mercs.find((m) => m.isOnPlayerTeam() && m.items);
+  const free = merc.items.map((it, i) => (it.getInt('Item ID') === 0 && i > 6 ? i : -1)).filter((i) => i !== -1);
+  if (free.length < 2) { check(f + ': two free pockets for the quick items', false); return; }
+  J.QUICK_ITEMS.law.make(merc.items[free[0]]);
+  J.QUICK_ITEMS.rifle.make(merc.items[free[1]]);
+  let back = null;
+  try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': quick items save reloads', false, e.message); return; }
+  const items = back.mercs.find((m) => m.slot === merc.slot).items;
+  const hex = (it) => Array.from(it.data.slice(0, 0x22), (b) => b.toString(16).padStart(2, '0')).join('');
+  // usItem 0x33, 6 objects, bStatus[0..5] = 100, bGunAmmoStatus 100, ubImprintID 200, ubWeight 21
+  check(f + ': LAW x6 bytes', hex(items[free[0]]) === '33000600646464646464640000000000' + '0000000000000000' + '00000000' + '000000c8' + '1500', hex(items[free[0]]));
+  // usItem 0x41, 1 object, status 100, HEAT (10), 255 rounds, minirockets HEAP 0x71, ammo 100%, imprint 200, weight 50
+  check(f + ': Auto Rocket Rifle bytes', hex(items[free[1]]) === '41000100640aff0071006400000000000000000000000000' + '00000000' + '000000c8' + '3200', hex(items[free[1]]));
+  check(f + ': quick items readable', items[free[0]].get('Item ID') === 'LAW' && items[free[0]].getInt('Quantity') === 6 &&
+    items[free[1]].get('Ammo ID') === 'Minirockets, HEAP' && items[free[1]].getInt('Ammo Quantity') === 255);
 }
 
 /** JA2 1.13 v5: edit a team member (soldier + profile) and a profile, save, reload. */
