@@ -1,0 +1,390 @@
+/*
+  JAPE - Jagged Alliance 2 Person Editor, JavaScript port.
+  Original Java version written 1999-2008 by Douglas Greiman.
+
+  This software may be used and distributed according to the terms
+  of the GNU Public License, incorporated herein by reference.
+
+  Port of Skill.java, ItemExemplar.java, Item.java, Actor.java and
+  Mercenary.java: the game data structures and their field layouts.
+*/
+(function (J) {
+  'use strict';
+
+  var CAT = J.CAT;
+
+  // ---- Skills ------------------------------------------------------------------
+
+  J.SKILL_NAMES = [
+    'None', 'Lockpicking', 'Hand to Hand', 'Electronics', 'Night Ops',
+    'Throwing', 'Teaching', 'Heavy Weapons', 'Auto Weapons', 'Stealthy',
+    'Ambidextrous', 'Thief', 'Martial Arts', 'Knifing', 'Roof Bonus',
+    'Camouflaged'
+  ];
+  J.SkillTable = new J.NameTable(J.SKILL_NAMES.map(function (n, i) { return [i, n]; }));
+
+  // ---- Item exemplars (item types) ---------------------------------------------
+
+  /** One item type from the static item table (ItemExemplar). */
+  function ItemExemplar(row) {
+    this.id = row[0];
+    this.name = row[1];
+    this.category = row[2];
+    this.ammoIds = [];
+    this.ammoVariety = 0;
+    this.ammoCapacity = 0;
+    if (this.category === CAT.WEAPON) {
+      this.ammoIds = row.slice(3, 7).filter(function (id) { return id !== 0; });
+    } else if (this.category === CAT.AMMO) {
+      this.ammoVariety = row[3];
+      this.ammoCapacity = row[4];
+    }
+  }
+
+  var ATTACHMENT_CATS = [CAT.WEAPON_ATTACHMENT, CAT.ARMOR_ATTACHMENT, CAT.GRENADE, CAT.DETONATOR];
+
+  J.ITEMS = J.ITEM_ROWS.map(function (row) { return new ItemExemplar(row); });
+  J.ITEM_BY_ID = {};
+  J.ITEMS.forEach(function (ex) { J.ITEM_BY_ID[ex.id] = ex; });
+
+  /**
+   * Calibre of a magazine, read from its name ("7.62mm NATO Magazine, 20"
+   * -> "7.62mm NATO"). The game accepts any magazine of the gun's calibre,
+   * whatever its size, while the original table lists only the magazines
+   * of the gun's own size (e.g. M24: 5-round magazines only).
+   */
+  var CALIBRE = /^(\.\d+|\d+(?:\.\d+)?mm(?: WP| NATO)?|12 Gauge|CAWS|Minirockets|Tranquilizer Dart)/;
+  J.ITEMS.forEach(function (ex) {
+    if (ex.category === CAT.AMMO) {
+      var m = CALIBRE.exec(ex.name);
+      ex.calibre = m ? m[1] : ex.name;
+    }
+  });
+  J.ITEMS.forEach(function (ex) {
+    if (ex.category !== CAT.WEAPON) { return; }
+    var calibres = ex.ammoIds
+      .map(function (id) { return J.ITEM_BY_ID[id]; })
+      .filter(function (a) { return a && a.category === CAT.AMMO; })
+      .map(function (a) { return a.calibre; });
+    /** Magazine loaded into a new gun of this type. */
+    ex.defaultAmmoId = 0;
+    for (var i = 0; i < ex.ammoIds.length; ++i) {
+      var a = J.ITEM_BY_ID[ex.ammoIds[i]];
+      if (a && a.category === CAT.AMMO) { ex.defaultAmmoId = a.id; break; }
+    }
+    /** Every magazine of the gun's calibre(s). */
+    ex.compatibleAmmoIds = J.ITEMS
+      .filter(function (a) { return a.category === CAT.AMMO && calibres.indexOf(a.calibre) !== -1; })
+      .map(function (a) { return a.id; });
+  });
+
+  /**
+   * Two-handed weapons (bTwoHanded in the JA2 1.12 item data, as published
+   * by the JA2 Stracciatella project in assets/externalized/weapons.json).
+   * The original JAPE table has no such information.
+   */
+  var TWO_HANDED_IDS = [
+    0x0B, 0x0C, 0x0D, 0x0E, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+    0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24,
+    0x28, 0x29, 0x33, 0x37, 0x41
+  ];
+  /** Creature and vehicle attacks: "weapons" a merc cannot hold. */
+  var NON_PLAYER_WEAPON_IDS = [0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x34, 0x35, 0x39, 0x3A, 0x3B, 0x3C];
+
+  J.ITEMS.forEach(function (ex) {
+    ex.twoHanded = TWO_HANDED_IDS.indexOf(ex.id) !== -1;
+    /** Firearm or melee weapon a merc can hold in the hand. */
+    ex.handWeapon = (ex.category === CAT.WEAPON || ex.category === CAT.MELEE_WEAPON) &&
+      NON_PLAYER_WEAPON_IDS.indexOf(ex.id) === -1;
+  });
+  J.ItemNameTable = new J.NameTable(J.ITEMS.map(function (ex) { return [ex.id, ex.name]; }));
+
+  /** Lists used by the original choice boxes (all start with None). */
+  J.ITEM_LIST = J.ITEMS.slice();
+  J.AMMO_LIST = J.ITEMS.filter(function (ex) { return ex.id === 0 || ex.category === CAT.AMMO; });
+  J.ATTACHMENT_LIST = J.ITEMS.filter(function (ex) {
+    return ex.id === 0 || ATTACHMENT_CATS.indexOf(ex.category) !== -1;
+  });
+
+  J.exemplar = function (id) {
+    return Object.prototype.hasOwnProperty.call(J.ITEM_BY_ID, id) ? J.ITEM_BY_ID[id] : null;
+  };
+
+  // ---- Item (OBJECTTYPE, 0x24 bytes, JA2 1.0x only) ------------------------------
+
+  var B = function (o) { return new J.ByteField(o); };
+  var S = function (o) { return new J.ShortField(o); };
+  var ITEM_CHOICE = function (o) { return new J.ChoiceField(new J.ShortField(o), J.ItemNameTable); };
+
+  var ITEM_FIELDS = {
+    'Item ID': ITEM_CHOICE(0x00),
+    'Quantity': S(0x02),
+    'Item 1 %': B(0x04),
+    'Item 2 %': B(0x05),
+    'Item 3 %': B(0x06),
+    'Item 4 %': B(0x07),
+    'Item 5 %': B(0x08),
+    'Item 6 %': B(0x09),
+    'Money Value': S(0x08),
+    'Ammo Variety': B(0x05),
+    'Ammo Quantity': S(0x06),
+    'Ammo ID': ITEM_CHOICE(0x08),
+    'Ammo %': B(0x0A),
+    'Attachment 1 ID': ITEM_CHOICE(0x10),
+    'Attachment 2 ID': ITEM_CHOICE(0x12),
+    'Attachment 3 ID': ITEM_CHOICE(0x14),
+    'Attachment 4 ID': ITEM_CHOICE(0x16),
+    'Attachment 1 %': B(0x18),
+    'Attachment 2 %': B(0x19),
+    'Attachment 3 %': B(0x1A),
+    'Attachment 4 %': B(0x1B),
+    'Unknown 1': B(0x1C),
+    'Unknown 2': B(0x1D),
+    'Unknown 3': B(0x1E),
+    'Unknown 4': B(0x1F),
+    'Weight': S(0x20)
+  };
+
+  /** An inventory slot. `data` is a live view into the soldier's data. */
+  function Item(data) { J.Structure.call(this, ITEM_FIELDS, data); }
+  Item.prototype = Object.create(J.Structure.prototype);
+  Item.LENGTH = 0x24;
+  Item.prototype.exemplar = function () { return J.exemplar(this.getInt('Item ID')); };
+
+  // ---- Actor (MERCPROFILESTRUCT) -------------------------------------------------
+
+  /**
+   * A character profile. `raw` is the record as stored in the file
+   * (encrypted for save versions <= 99).
+   */
+  function Actor(raw, version, table) {
+    this.version = version;
+    if (version <= 99) {
+      this.data = J.Alg.decode(raw, raw.length, table);
+    } else {
+      this.data = new Uint8Array(raw);
+    }
+
+    var agi = version <= 99 ? 0x195 : 0x195 - 19 * 2;
+    var mec = version <= 99 ? 0x19b : 0x19b - 19 * 2;
+    var checksum = version <= 99 ? 0x2b8 : 0x2b8 - 19 * 4 - 4;
+
+    this.fields = {
+      'Name': new J.StringField(0x0, 0x3c),
+      'Nickname': new J.StringField(0x3c, 0x14),
+      'Medical': B(0x105),
+      'Strength': B(0x128),
+      'Max Health': B(0x129),
+      'Level Inc': B(0x12a),
+      'Health Inc': B(0x12b),
+      'Agility Inc': B(0x12c),
+      'Dexterity Inc': B(0x12d),
+      'Wisdom Inc': B(0x12e),
+      'Marksmanship Inc': B(0x12f),
+      'Medical Inc': B(0x130),
+      'Mechanical Inc': B(0x131),
+      'Explosives Inc': B(0x132),
+      'Strength Inc': B(0x133),
+      'Leadership Inc': B(0x134),
+      'Kills': S(0x136),
+      'Assists': S(0x138),
+      'Shots Fired': S(0x13a),
+      'Shots Hit': S(0x13c),
+      'Battles': S(0x13e),
+      'Wounds': S(0x140),
+      'Health': B(0x14e),
+      'Dexterity': B(0x14f),
+      'Personality': B(0x150),
+      'Skill1': new J.ChoiceField(B(0x151), J.SkillTable),
+      'Explosives': B(0x153),
+      'Skill2': new J.ChoiceField(B(0x154), J.SkillTable),
+      'Leadership': B(0x155),
+      'Level': B(0x160),
+      'Marksmanship': B(0x161),
+      'Wisdom': B(0x163),
+      'Agility': B(agi),
+      'Mechanical': B(mec),
+      'Checksum': new J.IntField(checksum)
+    };
+  }
+  Actor.prototype = Object.create(J.Structure.prototype);
+
+  /** Offset of the inventory size in a version 103 profile record. */
+  Actor.INVSIZE_OFFSET_103 = 0x278;
+
+  Actor.prototype.computeChecksum = function () {
+    if (this.version <= 99) { return J.Alg.actorChecksum(this.data); }
+    return statChecksum(this) + this.inventoryChecksum103() | 0;
+  };
+  Actor.prototype.inventoryChecksum103 = function () {
+    var base = Actor.INVSIZE_OFFSET_103;
+    var size = new J.IntField(base).getInt(this.data);
+    var sum = 0;
+    for (var i = 0; i < size; ++i) {
+      var offset = base + 4 + i * 12;
+      sum = (sum + new J.IntField(offset).getInt(this.data)) | 0;
+      sum = (sum + new J.IntField(offset + 8).getInt(this.data)) | 0;
+    }
+    return sum;
+  };
+  Actor.prototype.validateChecksum = function () {
+    var checksum = this.computeChecksum();
+    var saved = this.getInt('Checksum');
+    if (checksum !== saved) {
+      throw new J.FormatError('Invalid checksum (0x' + hex(checksum) + ' vs 0x' + hex(saved) +
+        ") in MERCPROFILESTRUCT for '" + this.get('Name') + "'");
+    }
+  };
+  Actor.prototype.recomputeChecksum = function () { this.setInt('Checksum', this.computeChecksum()); };
+
+  /** Record bytes ready to be written back to the file. */
+  Actor.prototype.encode = function (table) {
+    this.recomputeChecksum();
+    if (this.version <= 99) { return J.Alg.encode(this.data, this.data.length, table); }
+    return new Uint8Array(this.data);
+  };
+
+  /**
+   * Stat part of the version 103 checksum, shared by Actor and Mercenary.
+   * Java int arithmetic: products wrap at 32 bits.
+   */
+  function statChecksum(s) {
+    var c = 1;
+    c = (c + s.getInt('Health') + 1) | 0;
+    c = Math.imul(c, s.getInt('Max Health') + 1);
+    c = (c + s.getInt('Agility') + 1) | 0;
+    c = Math.imul(c, s.getInt('Dexterity') + 1);
+    c = (c + s.getInt('Strength') + 1) | 0;
+    c = Math.imul(c, s.getInt('Marksmanship') + 1);
+    c = (c + s.getInt('Medical') + 1) | 0;
+    c = Math.imul(c, s.getInt('Mechanical') + 1);
+    c = (c + s.getInt('Explosives') + 1) | 0;
+    c = Math.imul(c, s.getInt('Level') + 1);
+    return c;
+  }
+
+  function hex(n) { return (n >>> 0).toString(16); }
+
+  // ---- Mercenary (SOLDIERTYPE) ---------------------------------------------------
+
+  var MERC_CIPHERTEXT_OFFSET = 1;
+  var MERC_CIPHERTEXT_LENGTH = 0x918;
+  var FIRST_ITEM_OFFSET = 0x0c;
+  var ITEM_COUNT = 19;
+  var STATS_OFFSET_103 = 428;
+
+  /**
+   * A soldier present in the game world.
+   * `raw`: ubActive byte + SOLDIERTYPE + trailing data, as in the file.
+   * `slot`: index in the game's soldier array (0-19 = the player's team).
+   */
+  function Mercenary(raw, version, trailingOffset, inventorySum, table, slot) {
+    this.version = version;
+    this.trailingOffset = trailingOffset;
+    this.inventorySum = inventorySum;
+    this.slot = slot;
+    this.allData = new Uint8Array(raw);
+    this.items = null;
+
+    if (version <= 99) {
+      var ciphertext = raw.subarray(MERC_CIPHERTEXT_OFFSET, MERC_CIPHERTEXT_OFFSET + MERC_CIPHERTEXT_LENGTH);
+      this.data = J.Alg.decode(ciphertext, MERC_CIPHERTEXT_LENGTH, table);
+      this.items = [];
+      for (var i = 0; i < ITEM_COUNT; ++i) {
+        var off = FIRST_ITEM_OFFSET + i * Item.LENGTH;
+        this.items.push(new Item(this.data.subarray(off, off + Item.LENGTH)));
+      }
+    } else {
+      this.data = new Uint8Array(raw.subarray(1));
+    }
+
+    var v99 = version <= 99;
+    var t = trailingOffset;
+    var st = function (rel) { return t + rel + STATS_OFFSET_103; };
+    this.fields = {
+      'Energy': B(v99 ? 0x2c7 : 45),
+      'Max Energy': B(v99 ? 0x2c8 : 46),
+      'Nickname': new J.StringField(v99 ? 0x2da : 2, 20),
+      'Skill1': new J.ChoiceField(B(v99 ? 0x340 : st(8)), J.SkillTable),
+      'Skill2': new J.ChoiceField(B(v99 ? 0x341 : st(9)), J.SkillTable),
+      'Dexterity': B(v99 ? 0x348 : st(10)),
+      'Wisdom': B(v99 ? 0x349 : st(11)),
+      'Level': B(v99 ? 0x351 : st(2)),
+      'Health': B(v99 ? 0x364 : st(0)),
+      'Agility': B(v99 ? 0x370 : st(3)),
+      'Strength': B(v99 ? 0x376 : st(4)),
+      'Leadership': B(v99 ? 0x37f : st(14)),
+      'Mechanical': B(v99 ? 0x394 : st(5)),
+      'Max Health': B(v99 ? 0x395 : st(1)),
+      'Medical': B(v99 ? 0x55c : st(12)),
+      'Marksmanship': B(v99 ? 0x561 : st(6)),
+      'Explosives': B(v99 ? 0x562 : st(7)),
+      'Morale': B(v99 ? 0x6c8 : t + 204),
+      'ubProfile': B(717),
+      'Checksum': new J.IntField(v99 ? 0x8a0 : 972)
+    };
+  }
+  Mercenary.prototype = Object.create(J.Structure.prototype);
+
+  Mercenary.HELMET = 0;
+  Mercenary.BODY_ARMOR = 1;
+  Mercenary.LEG_ARMOR = 2;
+  Mercenary.HEADGEAR_1 = 3;
+  Mercenary.HEADGEAR_2 = 4;
+  Mercenary.RIGHT_HAND = 5;
+  Mercenary.LEFT_HAND = 6;
+  Mercenary.BACKPACK_1_3 = 7;
+  Mercenary.BACKPACK_2_3 = 8;
+  Mercenary.BACKPACK_3_3 = 9;
+  Mercenary.BACKPACK_4_3 = 10;
+  Mercenary.BACKPACK_1_1 = 11;
+  Mercenary.BACKPACK_2_1 = 12;
+  Mercenary.BACKPACK_3_1 = 13;
+  Mercenary.BACKPACK_4_1 = 14;
+  Mercenary.BACKPACK_1_2 = 15;
+  Mercenary.BACKPACK_2_2 = 16;
+  Mercenary.BACKPACK_3_2 = 17;
+  Mercenary.BACKPACK_4_2 = 18;
+
+  /** Soldier array slots 0-19 belong to OUR_TEAM (the player's mercs). */
+  Mercenary.OUR_TEAM_SIZE = 20;
+
+  Mercenary.prototype.isOnPlayerTeam = function () {
+    return this.slot >= 0 && this.slot < Mercenary.OUR_TEAM_SIZE;
+  };
+
+  Mercenary.prototype.computeChecksum = function () {
+    if (this.version <= 99) { return J.Alg.mercChecksum(this.data); }
+    var c = statChecksum(this);
+    c = (c + this.getInt('ubProfile') + 1) | 0;
+    c = (c + this.inventorySum) | 0;
+    return c;
+  };
+  Mercenary.prototype.validateChecksum = function () {
+    var checksum = this.computeChecksum();
+    var saved = this.getInt('Checksum');
+    if (checksum !== saved) {
+      throw new J.FormatError('Invalid checksum (0x' + hex(checksum) + ' vs 0x' + hex(saved) +
+        ") in SOLDIERTYPE for '" + this.get('Nickname') + "'");
+    }
+  };
+  Mercenary.prototype.recomputeChecksum = function () { this.setInt('Checksum', this.computeChecksum()); };
+
+  /** Record bytes ready to be written back to the file. */
+  Mercenary.prototype.encode = function (table) {
+    // Items are live views into this.data, so they need no copying back.
+    this.recomputeChecksum();
+    var raw = new Uint8Array(this.allData);
+    if (this.version <= 99) {
+      raw.set(J.Alg.encode(this.data, MERC_CIPHERTEXT_LENGTH, table), MERC_CIPHERTEXT_OFFSET);
+    } else {
+      raw.set(this.data, 1);
+    }
+    return raw;
+  };
+
+  J.ItemExemplar = ItemExemplar;
+  J.Item = Item;
+  J.Actor = Actor;
+  J.Mercenary = Mercenary;
+})(this.JAPE = this.JAPE || {});

@@ -1,0 +1,59 @@
+<!doctype html>
+<!--
+  JAPE - Jagged Alliance 2 Person Editor, JavaScript port.
+  Original Java version written 1999-2008 by Douglas Greiman.
+
+  This software may be used and distributed according to the terms
+  of the GNU Public License, incorporated herein by reference.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JAPE</title>
+  <link rel="stylesheet" href="css/jape.css">
+</head>
+<body>
+  <div class="app">
+    <nav class="menubar" role="menubar" aria-label="Main menu">
+      <div class="menu">
+        <button type="button" class="menu-title" role="menuitem" aria-haspopup="menu" aria-expanded="false">File</button>
+        <div class="menu-popup" role="menu">
+          <button type="button" role="menuitem" data-cmd="open">Open...<span class="key">Ctrl+O</span></button>
+          <button type="button" role="menuitem" data-cmd="save" disabled>Save<span class="key">Ctrl+S</span></button>
+          <button type="button" role="menuitem" data-cmd="saveAs" disabled>Save As...</button>
+          <button type="button" role="menuitem" data-cmd="close" disabled>Close</button>
+        </div>
+      </div>
+      <div class="menu">
+        <button type="button" class="menu-title" role="menuitem" aria-haspopup="menu" aria-expanded="false">Help</button>
+        <div class="menu-popup" role="menu">
+          <button type="button" role="menuitem" data-cmd="about">About...</button>
+        </div>
+      </div>
+    </nav>
+
+    <main class="body">
+      <div id="actor-list" class="listbox" role="listbox" tabindex="0" aria-label="Characters"></div>
+      <section id="stat-panel" class="panel" aria-label="Character statistics"></section>
+      <section id="item-panel" class="panel" aria-label="Inventory"></section>
+    </main>
+
+    <footer class="statusbar">
+      <span id="status-msg"></span>
+      <span id="status-file"></span>
+    </footer>
+  </div>
+
+  <input type="file" id="file-input" accept=".sav" hidden>
+
+  <script src="vendor/jquery-4.0.0.min.js"></script>
+  <script src="js/codetables.js"></script>
+  <script src="js/items.js"></script>
+  <script src="js/alg.js"></script>
+  <script src="js/fields.js"></script>
+  <script src="js/model.js"></script>
+  <script src="js/savegame.js"></script>
+  <script src="js/ui.js"></script>
+</body>
+</html>

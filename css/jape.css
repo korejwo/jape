@@ -1,0 +1,357 @@
+/*
+  JAPE - Jagged Alliance 2 Person Editor, JavaScript port.
+  Classic Windows / Java AWT look, modelled on the original screenshots.
+*/
+
+:root {
+  --window: #ffffff;
+  --face: #f0f0f0;
+  --button-face: #e1e1e1;
+  --text: #000000;
+  --gray-text: #8d8d8d;
+  --disabled-text: #6d6d6d;
+  --highlight: #0078d7;
+  --highlight-text: #ffffff;
+  --light: #ffffff;
+  --light-shadow: #e3e3e3;
+  --shadow: #a0a0a0;
+  --dark-shadow: #696969;
+  --menu-hover: #91c9f7;
+  --row: 21px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--window);
+  color: var(--text);
+  font: 12px Arial, Helvetica, sans-serif;
+  overflow: auto;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 860px;
+  min-height: 545px;
+}
+
+/* ---- Menu bar ---------------------------------------------------------------- */
+
+.menubar {
+  display: flex;
+  flex: none;
+  height: 20px;
+  background: var(--face);
+  user-select: none;
+}
+
+.menu { position: relative; }
+
+.menu-title {
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+}
+
+.menu-title:hover,
+.menu.open .menu-title { background: var(--menu-hover); }
+
+.menu-title:focus-visible { outline: 1px dotted var(--text); outline-offset: -2px; }
+
+.menu-popup {
+  display: none;
+  position: absolute;
+  top: 20px;
+  left: 0;
+  z-index: 50;
+  min-width: 170px;
+  padding: 2px;
+  background: #f2f2f2;
+  border: 1px solid #cccccc;
+  box-shadow: 2px 2px 3px rgba(0, 0, 0, 0.3);
+}
+
+.menu.open .menu-popup { display: block; }
+
+.menu-popup button {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  height: 22px;
+  padding: 0 12px 0 28px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  align-items: center;
+}
+
+.menu-popup button:hover:not(:disabled),
+.menu-popup button:focus-visible { background: var(--menu-hover); outline: none; }
+
+.menu-popup button:disabled { color: var(--gray-text); }
+
+.menu-popup .key { margin-left: 24px; }
+
+/* ---- Main layout ------------------------------------------------------------------ */
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.panel {
+  flex: none;
+  padding: 10px;
+  overflow: hidden;
+}
+
+#stat-panel { padding-left: 12px; padding-right: 13px; }
+
+/* ---- Character list (AWT List) ----------------------------------------------------- */
+
+.listbox {
+  position: relative;
+  flex: none;
+  width: 108px;
+  margin: 1px 0 0 2px;
+  overflow-y: scroll;
+  background: var(--window);
+  border: 1px solid;
+  border-color: var(--shadow) var(--light) var(--light) var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--dark-shadow), inset -1px -1px 0 var(--light-shadow);
+  padding: 2px 0;
+  cursor: default;
+  user-select: none;
+}
+
+.listbox:focus-visible { outline: 1px dotted var(--text); outline-offset: -3px; }
+
+.listbox .opt {
+  height: 13px;
+  line-height: 13px;
+  padding: 0 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.listbox .opt.selected {
+  background: var(--highlight);
+  color: var(--highlight-text);
+}
+
+/* ---- Form controls (AWT TextField / Choice / Button) ------------------------------ */
+
+.field {
+  height: 20px;
+  margin: 0;
+  padding: 0 2px;
+  border: 1px solid;
+  border-color: var(--shadow) var(--light) var(--light) var(--shadow);
+  box-shadow: inset 1px 1px 0 var(--dark-shadow), inset -1px -1px 0 var(--light-shadow);
+  border-radius: 0;
+  background: var(--window);
+  color: var(--text);
+  font: inherit;
+}
+
+.field:focus { outline: none; }
+.field:focus-visible { outline: 1px dotted var(--dark-shadow); outline-offset: -4px; }
+
+input.field.num { width: 40px; }
+input.field.text { width: 202px; }
+
+select.field {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 20px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='%23e1e1e1'/%3E%3Cpath d='M0 0h16v1H1v15H0z' fill='%23e3e3e3'/%3E%3Cpath d='M15 0h1v16H0v-1h15z' fill='%23696969'/%3E%3Cpath d='M14 1h1v14H1v-1h13z' fill='%23a0a0a0'/%3E%3Cpath d='M4.5 6.5h7L8 10z' fill='%23000'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+  background-size: 16px 16px;
+  text-overflow: ellipsis;
+}
+
+select.field.skill { width: 105px; }
+select.field.item { width: 250px; }
+
+.field:disabled {
+  background-color: var(--face);
+  color: var(--disabled-text);
+  opacity: 1;
+}
+
+select.field:disabled {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='16' height='16' fill='%23e1e1e1'/%3E%3Cpath d='M0 0h16v1H1v15H0z' fill='%23e3e3e3'/%3E%3Cpath d='M15 0h1v16H0v-1h15z' fill='%23696969'/%3E%3Cpath d='M14 1h1v14H1v-1h13z' fill='%23a0a0a0'/%3E%3Cpath d='M4.5 6.5h7L8 10z' fill='%23a0a0a0'/%3E%3C/svg%3E");
+}
+
+.btn {
+  height: var(--row);
+  margin: 0;
+  padding: 0 4px;
+  border: 1px solid;
+  border-color: var(--light) var(--dark-shadow) var(--dark-shadow) var(--light);
+  box-shadow: inset -1px -1px 0 var(--shadow), inset 1px 1px 0 var(--light-shadow);
+  border-radius: 0;
+  background: var(--button-face);
+  color: var(--text);
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn:focus { outline: none; }
+.btn:focus-visible { outline: 1px dotted var(--text); outline-offset: -4px; }
+
+.btn:active:not(:disabled),
+.btn.selected {
+  border-color: var(--dark-shadow) var(--light) var(--light) var(--dark-shadow);
+  box-shadow: inset 1px 1px 0 var(--shadow);
+  padding: 1px 3px 0 5px;
+}
+
+.btn.selected { background: #cce4f7; }
+
+.btn:disabled { color: var(--gray-text); }
+
+/* ---- Grids (GridBagLayout tables) ------------------------------------------------------ */
+
+.grid {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+.grid td {
+  height: var(--row);
+  padding: 0;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.grid .lbl { padding-right: 4px; }
+.grid .sep { padding: 0 3px; }
+.grid .sep.right { text-align: right; }
+.grid .sep.center { text-align: center; }
+
+.lbl.disabled,
+.sep.disabled { color: var(--gray-text); }
+
+/* Stat panel columns: label | value | sep | value | sep | value | ")" */
+.stat-grid col.c-label { width: 90px; }
+.stat-grid col.c-num { width: 40px; }
+.stat-grid col.c-sep { width: 25px; }
+
+/* Item detail columns: label | 6 x value | pct | "%" */
+.detail-grid col.c-label { width: 102px; }
+.detail-grid col.c-cell { width: 42px; }
+.detail-grid col.c-pct { width: 43px; }
+.detail-grid td.pct { padding-left: 3px; }
+.detail-grid td.pctsign { padding-left: 4px; }
+
+/* ---- Inventory slots -------------------------------------------------------------------- */
+
+.slots {
+  display: grid;
+  grid-template-columns: repeat(3, 112px);
+  grid-auto-rows: var(--row);
+  column-gap: 34px;
+  margin-bottom: 13px;
+}
+
+.item-note {
+  display: none;
+  margin: -10px 0 8px 12px;
+  color: var(--dark-shadow);
+  font-style: italic;
+}
+
+.item-note.shown { display: block; }
+
+.detail { padding-left: 12px; }
+
+/* ---- Status bar ------------------------------------------------------------------------- */
+
+.statusbar {
+  display: flex;
+  flex: none;
+  justify-content: space-between;
+  gap: 16px;
+  height: 20px;
+  padding: 0 6px;
+  align-items: center;
+  background: var(--face);
+  border-top: 1px solid #d7d7d7;
+  color: #333333;
+}
+
+/* ---- Dialogs (OptionDialog / JapeAbout) ---------------------------------------------------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.dialog {
+  min-width: 300px;
+  max-width: 520px;
+  background: var(--face);
+  border: 1px solid #7a7a7a;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.dialog-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 30px;
+  padding-left: 10px;
+  background: var(--window);
+}
+
+.dialog-close {
+  width: 46px;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  font: 16px Arial, Helvetica, sans-serif;
+  color: var(--text);
+}
+
+.dialog-close:hover { background: #e81123; color: #ffffff; }
+
+.dialog-text {
+  margin: 0 1px;
+  padding: 10px 14px;
+  background: var(--window);
+}
+
+.dialog-text p { margin: 0; line-height: 20px; white-space: pre-wrap; }
+.dialog-text.centered { text-align: center; }
+
+.dialog-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 5px;
+}
+
+.dialog-buttons .btn { min-width: 75px; height: 23px; }
