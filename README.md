@@ -86,6 +86,12 @@ Supported saves:
   armor gets Ceramic Plates. The item format has exactly 4 attachment slots.
 - A value already in the save that breaks these rules is still shown, so it is
   never changed silently.
+- Choosing an attachment sets its status to 100%; setting it back to None sets
+  the status to 0%.
+- Ammo types of four magazines are corrected to the JA2 1.12 data (the original
+  table had them wrong): 4.7mm and Minirockets AP are super AP (3), the regular
+  12 Gauge magazine is regular (0), and the HP minirockets are really HE (9) and
+  are named "Minirockets, HE".
 - Number boxes accept digits only, clamped to the field: 0–127 for values the
   game stores as signed bytes (stats, energy, morale, item status – the original
   allowed up to 255, which the game reads as negative), 0–255 or 0–65535
@@ -104,7 +110,9 @@ Supported saves:
   (item + attachments, JA2 1.12 weights). The game uses one plate at a time and
   removes a plate when it is destroyed, so the next one takes over.
 - JA2 1.0x saves: **Add LAW** creates 6 LAWs stacked in one slot, **Add rifle**
-  an Auto Rocket Rifle loaded with 255 HEAP minirockets. Both go into the first
+  an Auto Rocket Rifle loaded with 255 HEAP minirockets, with Silencer, Laser
+  Scope and Sniper Scope attached at 100% (the game applies attachment bonuses
+  by looking the attachment up on the gun). Both go into the first
   empty slot searching from the last one (small pockets first), skipping slots
   the slot rules forbid (armour and head gear slots, a hand blocked by a
   two-handed weapon). They are built the way the game creates items

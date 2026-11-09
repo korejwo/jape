@@ -135,6 +135,9 @@ function check(name, ok, detail) {
 
   check('item table size', J.ITEMS.length === 302, String(J.ITEMS.length));
   check('Glock 17 ammo list', J.exemplar(1).ammoIds.join(',') === '71,73,75', J.exemplar(1).ammoIds.join(','));
+  check('ammo types corrected to the game data (4.7mm, 12 Gauge, minirockets AP/HE)',
+    J.exemplar(0x68).ammoVariety === 3 && J.exemplar(0x6B).ammoVariety === 0 && J.exemplar(0x6F).ammoVariety === 3 &&
+    J.exemplar(0x70).ammoVariety === 9 && J.exemplar(0x70).name === 'Minirockets, HE' && J.exemplar(0x71).ammoVariety === 10);
   const hex = (ids) => ids.map((x) => x.toString(16)).join(',');
   check('Glock 17 takes every 9mm magazine', hex(J.exemplar(0x01).compatibleAmmoIds) === '47,48,49,4a,4b,4c', hex(J.exemplar(0x01).compatibleAmmoIds));
   check('M24 takes 5- and 20-round 7.62 NATO', hex(J.exemplar(0x13).compatibleAmmoIds) === '64,65,66,67', hex(J.exemplar(0x13).compatibleAmmoIds));
@@ -254,8 +257,11 @@ function testQuickItems(f, bytes) {
   const hex = (it) => Array.from(it.data.slice(0, 0x22), (b) => b.toString(16).padStart(2, '0')).join('');
   // usItem 0x33, 6 objects, bStatus[0..5] = 100, bGunAmmoStatus 100, ubImprintID 200, ubWeight 21
   check(f + ': LAW x6 bytes', hex(items[free[0]]) === '33000600646464646464640000000000' + '0000000000000000' + '00000000' + '000000c8' + '1500', hex(items[free[0]]));
-  // usItem 0x41, 1 object, status 100, HEAT (10), 255 rounds, minirockets HEAP 0x71, ammo 100%, imprint 200, weight 50
-  check(f + ': Auto Rocket Rifle bytes', hex(items[free[1]]) === '41000100640aff0071006400000000000000000000000000' + '00000000' + '000000c8' + '3200', hex(items[free[1]]));
+  // usItem 0x41, 1 object, status 100, HEAT (10), 255 rounds, minirockets HEAP 0x71, ammo 100%,
+  // attachments Silencer 0xCF, Laser Scope 0xF1, Sniper Scope 0xD0 at 100%, imprint 200,
+  // weight 40 + 10 + 5 + 4 + 9 = 68
+  check(f + ': Auto Rocket Rifle bytes', hex(items[free[1]]) === '41000100640aff007100640000000000' +
+    'cf00f100d0000000' + '64646400' + '000000c8' + '4400', hex(items[free[1]]));
   check(f + ': quick items readable', items[free[0]].get('Item ID') === 'LAW' && items[free[0]].getInt('Quantity') === 6 &&
     items[free[1]].get('Ammo ID') === 'Minirockets, HEAP' && items[free[1]].getInt('Ammo Quantity') === 255);
 }

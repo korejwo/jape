@@ -48,6 +48,19 @@
   J.ITEMS.forEach(function (ex) { J.ITEM_BY_ID[ex.id] = ex; });
 
   /**
+   * Corrections to the original JAPE item table (items.js is a faithful
+   * conversion of it). Ammo types (ubAmmoType, set as "Ammo Variety" when a
+   * magazine is chosen) of the JA2 1.12 magazine data, as published by the
+   * JA2 Stracciatella project; the other 40 magazines already match.
+   * 0 regular, 3 super AP, 9 HE. The 0x70 minirockets are HE, not HP.
+   */
+  var AMMO_TYPE_FIXES = { 0x68: 3, 0x6B: 0, 0x6F: 3, 0x70: 9 };
+  Object.keys(AMMO_TYPE_FIXES).forEach(function (id) {
+    J.ITEM_BY_ID[id].ammoVariety = AMMO_TYPE_FIXES[id];
+  });
+  J.ITEM_BY_ID[0x70].name = 'Minirockets, HE';
+
+  /**
    * Calibre of a magazine, read from its name ("7.62mm NATO Magazine, 20"
    * -> "7.62mm NATO"). The game accepts any magazine of the gun's calibre,
    * whatever its size, while the original table lists only the magazines
@@ -404,13 +417,19 @@
    * the JA2 Stracciatella project. The game stores an object's weight as the
    * item's weight plus its attachments'.
    */
-  J.ITEM_WEIGHTS = { 0x33: 21, 0x41: 40, 0x71: 10, 0xA9: 29, 0xAF: 35, 0xB6: 13, 0xB7: 12, 0xD2: 9, 0xD3: 9 };
+  J.ITEM_WEIGHTS = {
+    0x33: 21, 0x41: 40, 0x71: 10, 0xA9: 29, 0xAF: 35, 0xB6: 13, 0xB7: 12,
+    0xCF: 5, 0xD0: 9, 0xD2: 9, 0xD3: 9, 0xF1: 4
+  };
 
   var NO_PROFILE = 200;
   var LAW = 0x33;
   var AUTO_ROCKET_RIFLE = 0x41;
   var MINIROCKETS_HEAP = 0x71;
   var AMMO_HEAT = 10;
+  var SILENCER = 0xCF;
+  var SNIPER_SCOPE = 0xD0;
+  var LASER_SCOPE = 0xF1;
 
   /**
    * A stack of LAWs, built like the game's CreateItems(): CreateGun(LAW)
@@ -433,9 +452,12 @@
 
   /**
    * An Auto Rocket Rifle (CreateGun: status 100, not fingerprint-locked,
-   * so it locks to the first merc who uses it) loaded with HEAP minirockets.
-   * Weight: rifle + magazine, as the game computes it for a loaded gun.
+   * so it locks to the first merc who uses it) loaded with HEAP minirockets,
+   * with Silencer, Laser Scope and Sniper Scope attached at 100%. The game
+   * applies attachment bonuses by looking the attachment up on the gun.
+   * Weight: rifle + attachments + magazine, as the game computes it.
    */
+  J.ROCKET_RIFLE_ATTACHMENTS = [SILENCER, LASER_SCOPE, SNIPER_SCOPE];
   J.makeRocketRifle = function (item, rounds) {
     item.data.fill(0);
     item.setInt('Item ID', AUTO_ROCKET_RIFLE);
@@ -446,7 +468,13 @@
     item.setInt('Ammo ID', MINIROCKETS_HEAP);  // usGunAmmoItem
     item.setInt('Ammo %', 100);                // bGunAmmoStatus
     item.setInt('Unknown 4', NO_PROFILE);     // ubImprintID
-    item.setInt('Weight', J.ITEM_WEIGHTS[AUTO_ROCKET_RIFLE] + J.ITEM_WEIGHTS[MINIROCKETS_HEAP]);
+    var weight = J.ITEM_WEIGHTS[AUTO_ROCKET_RIFLE] + J.ITEM_WEIGHTS[MINIROCKETS_HEAP];
+    J.ROCKET_RIFLE_ATTACHMENTS.forEach(function (id, k) {
+      item.setInt('Attachment ' + (k + 1) + ' ID', id);
+      item.setInt('Attachment ' + (k + 1) + ' %', 100);
+      weight += J.ITEM_WEIGHTS[id];
+    });
+    item.setInt('Weight', weight);
   };
 
   J.QUICK_ITEMS = {

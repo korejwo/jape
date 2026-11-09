@@ -562,7 +562,12 @@
     } else {
       var k = this.attachmentIdViews.indexOf(view);
       if (k !== -1) {
-        if (oldValue === 0 && newValue !== 0) { this.attachmentPctViews[k].setValue(100); }
+        // New attachment: 100%. Attachment removed (None): 0%.
+        if (oldValue === 0 && newValue !== 0) {
+          this.attachmentPctViews[k].setValue(100);
+        } else if (newValue === 0) {
+          this.attachmentPctViews[k].setValue(0);
+        }
         this.updateOptions();
       }
     }
