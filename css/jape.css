@@ -253,6 +253,16 @@ select.field:disabled {
 .lbl.disabled,
 .sep.disabled { color: var(--gray-text); }
 
+/* +1 / +10 skill buttons, in the two columns after ")" */
+.grid td.bump { padding-left: 3px; }
+.btn.bump {
+  width: 29px;
+  height: 19px;
+  padding: 0;
+  font-size: 11px;
+}
+.btn.bump:active:not(:disabled) { padding: 1px 0 0 1px; }
+
 /* Stat panel columns: label | value | sep | value | sep | value | ")" */
 .stat-grid col.c-label { width: 90px; }
 .stat-grid col.c-num { width: 40px; }
@@ -285,6 +295,55 @@ select.field:disabled {
 .item-note.shown { display: block; }
 
 .detail { padding-left: 12px; }
+
+/* ---- JA2 1.13 inventory ------------------------------------------------------------------ */
+
+.inv113 { width: 404px; }
+
+.inv113 .inv-list {
+  width: 404px;
+  height: 222px;
+  margin: 0 0 10px;
+}
+
+.inv113 .inv-list .opt {
+  display: flex;
+  height: 16px;
+  line-height: 16px;
+}
+
+.inv113 .inv-list .slot {
+  flex: none;
+  width: 118px;
+  color: var(--dark-shadow);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inv113 .inv-list .opt.selected .slot { color: var(--highlight-text); }
+
+.inv113 .inv-list .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.detail113 .value {
+  display: inline-block;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.detail113 select.field.item { width: 300px; }
+
+.inv-note {
+  margin: 8px 0 0;
+  color: var(--dark-shadow);
+  line-height: 16px;
+}
 
 /* ---- Status bar ------------------------------------------------------------------------- */
 

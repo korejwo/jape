@@ -29,6 +29,8 @@
 
   // GAME_OPTIONS inside SAVED_GAME_HEADER
   var HEADER_GAME_OPTIONS = 303;
+  var GO_INVENTORY_SYSTEM = 8;          // 0 = old 19-slot inventory, else new (NIV)
+  var GO_ATTACHMENT_SYSTEM = 9;         // 0 = old attachments, else new (NAS)
   var GO_NEW_TRAIT_SYSTEM = 12;
 
   // MERCPROFILESTRUCT: POD, then inventory (int count + count * 3 ints), then
@@ -243,54 +245,82 @@
   // Soldier (SOLDIERTYPE)
   // ===========================================================================
 
+  // Offsets inside the part of the record that follows the inventory.
+  var TAIL_MORALE = AIDATA_MORALE;
+  var TAIL_FLAGS_STATUS = AIDATA_SIZE + FLAGS_STATUS;
+  var TAIL_STATS = AIDATA_SIZE + FLAGS_SIZE + TIMECHANGES_SIZE + TIMECOUNTERS_SIZE + DRUGS_SIZE;
+
   /**
-   * @param record bytes of the soldier record, from the POD to the key ring
-   * @param layout offsets of the variable-position structs inside the record
+   * A soldier record in three parts: the fixed POD, the inventory slots
+   * (variable size; each slot is an OBJECTTYPE followed by 8 bytes of
+   * bNewItemCount/bNewItemCycleCount) and everything after the inventory.
+   * Replacing an item can change the record size; encode() reassembles it.
    */
-  function Soldier113(record, offset, slot, layout, traits) {
+  function Soldier113(bytes, layout, slot, traits) {
     this.version = VERSION;
-    this.offset = offset;
     this.slot = slot;
-    this.items = null;
-    this.data = new Uint8Array(record);
-    this.inventorySum = layout.inventorySum;
-    var st = layout.stats;
-    this.fields = {
-      'Nickname': new J.StringField(2, 20),
-      'Energy': S8(45),
-      'Max Energy': S8(46),
-      'Morale': S8(layout.aiData + AIDATA_MORALE),
-      'Level': S8(st + 0),
-      'Health': S8(st + 1),
-      'Max Health': S8(st + 2),
-      'Strength': S8(st + 3),
-      'Agility': S8(st + 4),
-      'Dexterity': S8(st + 5),
-      'Wisdom': S8(st + 6),
-      'Leadership': S8(st + 7),
-      'Marksmanship': S8(st + 8),
-      'Mechanical': S8(st + 9),
-      'Explosives': S8(st + 10),
-      'Medical': S8(st + 11),
-      'Skill1': new J.ChoiceField(new J.ByteField(st + 13), traits),
-      'Skill2': new J.ChoiceField(new J.ByteField(st + 14), traits),
-      'Skill3': new J.ChoiceField(new J.ByteField(st + 15), traits),
-      'ubProfile': new J.ByteField(SOLDIER_PROFILE),
-      'Checksum': new J.IntField(SOLDIER_CHECKSUM)
-    };
-    this.team = s8(this.data, SOLDIER_TEAM);
-    this.statusFlags = i32(this.data, layout.flags + FLAGS_STATUS);
+    this.offset = layout.start;            // position and size in the loaded file
+    this.length = layout.end - layout.start;
+    this.items = null;                     // no JA2 1.0x style inventory
+    this.pod = new Uint8Array(bytes.subarray(layout.start, layout.start + SOLDIER_POD));
+    this.inventory = layout.slots.map(function (s) {
+      return {
+        bytes: new Uint8Array(bytes.subarray(s.start, s.end)),
+        extra: new Uint8Array(bytes.subarray(s.end, s.end + 8)),
+        node: rebase(s.node, s.start)
+      };
+    });
+    this.tail = new Uint8Array(bytes.subarray(layout.tail, layout.end));
+
+    var t = TAIL_STATS;
+    this.parts = new J.Chain([
+      new J.Structure({
+        'Nickname': new J.StringField(2, 20),
+        'Energy': S8(45),
+        'Max Energy': S8(46),
+        'ubProfile': new J.ByteField(SOLDIER_PROFILE),
+        'Checksum': new J.IntField(SOLDIER_CHECKSUM)
+      }, this.pod),
+      new J.Structure({
+        'Morale': S8(TAIL_MORALE),
+        'Level': S8(t + 0),
+        'Health': S8(t + 1),
+        'Max Health': S8(t + 2),
+        'Strength': S8(t + 3),
+        'Agility': S8(t + 4),
+        'Dexterity': S8(t + 5),
+        'Wisdom': S8(t + 6),
+        'Leadership': S8(t + 7),
+        'Marksmanship': S8(t + 8),
+        'Mechanical': S8(t + 9),
+        'Explosives': S8(t + 10),
+        'Medical': S8(t + 11),
+        'Skill1': new J.ChoiceField(new J.ByteField(t + 13), traits),
+        'Skill2': new J.ChoiceField(new J.ByteField(t + 14), traits),
+        'Skill3': new J.ChoiceField(new J.ByteField(t + 15), traits)
+      }, this.tail)
+    ]);
+    this.team = s8(this.pod, SOLDIER_TEAM);
+    this.statusFlags = i32(this.tail, TAIL_FLAGS_STATUS);
   }
-  Soldier113.prototype = Object.create(J.Structure.prototype);
+  ['field', 'has', 'get', 'getInt', 'set', 'setInt'].forEach(function (m) {
+    Soldier113.prototype[m] = function (a, b) { return this.parts[m](a, b); };
+  });
 
   /** Player's mercs: OUR_TEAM, not a vehicle. */
   Soldier113.prototype.isOnPlayerTeam = function () {
     return this.team === OUR_TEAM && !(this.statusFlags & SOLDIER_VEHICLE);
   };
+  /** Sum the checksum takes over the top-level inventory objects. */
+  Soldier113.prototype.inventorySum = function () {
+    return this.inventory.reduce(function (sum, s) {
+      return (sum + u16(s.bytes, 0) + s.bytes[2]) | 0;   // usItem + ubNumberOfObjects
+    }, 0);
+  };
   Soldier113.prototype.computeChecksum = function () {
     var c = statChecksum(this);
     c = (c + this.getInt('ubProfile') + 1) | 0;
-    return (c + this.inventorySum) | 0;
+    return (c + this.inventorySum()) | 0;
   };
   Soldier113.prototype.validateChecksum = function () {
     var c = this.computeChecksum();
@@ -300,54 +330,83 @@
         ") in SOLDIERTYPE for '" + this.get('Nickname') + "'");
     }
   };
+  /** The whole record, checksum updated. Its length can differ from the original. */
   Soldier113.prototype.encode = function () {
     this.setInt('Checksum', this.computeChecksum());
-    return this.data;
+    var parts = [this.pod, int32Bytes(this.inventory.length)];
+    this.inventory.forEach(function (s) { parts.push(s.bytes, s.extra); });
+    parts.push(this.tail);
+    return concat(parts);
   };
 
-  /** Skips one OBJECTTYPE (recursively); returns {usItem, ubNumberOfObjects}. */
+  /** Replaces the OBJECTTYPE bytes of an inventory slot (see J.Items113). */
+  Soldier113.prototype.setSlotObject = function (index, bytes) {
+    var slot = this.inventory[index];
+    slot.bytes = bytes;
+    slot.node = readObject(new Reader(bytes));
+    if (slot.node.end !== bytes.length) { throw new Error('Inconsistent object for slot ' + index); }
+  };
+
+  /**
+   * Reads one OBJECTTYPE (recursively) and returns its tree:
+   * {start, end, usItem, number, stacks: [{data, attachments: [node], lbe}]}
+   * where `data` is the offset of the stacked object's ObjectData.
+   */
   function readObject(r) {
     var b = r.bytes;
+    var node = { start: r.pos, usItem: 0, number: 0, stacks: [] };
     r.need(OBJECT_POD);
-    var usItem = u16(b, r.pos);
-    var number = b[r.pos + 2];
+    node.usItem = u16(b, r.pos);
+    node.number = b[r.pos + 2];
     r.skip(OBJECT_POD);
     var stack = count(r, MAX_STACK - 1, 'object stack size');
     for (var x = 0; x < stack; ++x) {
-      var objectData = r.pos;
+      var entry = { data: r.pos, attachments: [], lbe: false };
       r.skip(OBJECTDATA_SIZE);
       var attachments = count(r, MAX_STACK - 1, 'attachment count');
-      for (var a = 0; a < attachments; ++a) { readObject(r); }
+      for (var a = 0; a < attachments; ++a) { entry.attachments.push(readObject(r)); }
       // An active LBE (load bearing equipment) item is followed by its
       // LBENODE. The game decides by item class (Items.xml); without it, the
       // node is recognised by carrying the same uniqueID as the item.
-      if (usItem && number && s8(b, objectData + OBJECTDATA_BLBE) === -1 &&
+      if (node.usItem && node.number && s8(b, entry.data + OBJECTDATA_BLBE) === -1 &&
           r.pos + LBENODE_POD <= b.length &&
-          i32(b, r.pos + LBENODE_UNIQUEID) === i32(b, objectData + OBJECTDATA_UNIQUEID)) {
+          i32(b, r.pos + LBENODE_UNIQUEID) === i32(b, entry.data + OBJECTDATA_UNIQUEID)) {
+        entry.lbe = true;
         r.skip(LBENODE_POD);
         var contents = count(r, MAX_STACK - 1, 'LBE content count');
         for (var k = 0; k < contents; ++k) { readObject(r); }
       }
+      node.stacks.push(entry);
     }
-    return { usItem: usItem, number: number };
+    node.end = r.pos;
+    return node;
+  }
+
+  /** Makes a node's offsets relative to `base`. */
+  function rebase(node, base) {
+    return {
+      start: node.start - base,
+      end: node.end - base,
+      usItem: node.usItem,
+      number: node.number,
+      stacks: node.stacks.map(function (e) {
+        return { data: e.data - base, lbe: e.lbe, attachments: e.attachments.map(function (n) { return rebase(n, base); }) };
+      })
+    };
   }
 
   function readSoldier(r) {
-    var start = r.pos;
+    var layout = { start: r.pos, slots: [] };
     r.skip(SOLDIER_POD);
     var slots = count(r, NUM_INV_SLOTS, 'inventory size');
-    var sum = 0;
     for (var i = 0; i < slots; ++i) {
-      var obj = readObject(r);
-      sum = (sum + obj.usItem + obj.number) | 0;
+      var node = readObject(r);
+      layout.slots.push({ start: node.start, end: node.end, node: node });
       r.skip(8);                          // bNewItemCount, bNewItemCycleCount
     }
-    var layout = { inventorySum: sum, aiData: r.pos - start };
-    r.skip(AIDATA_SIZE);
-    layout.flags = r.pos - start;
-    r.skip(FLAGS_SIZE + TIMECHANGES_SIZE + TIMECOUNTERS_SIZE + DRUGS_SIZE);
-    layout.stats = r.pos - start;
-    r.skip(STATS_SIZE + PATHING_SIZE);
+    layout.tail = r.pos;
+    r.skip(AIDATA_SIZE + FLAGS_SIZE + TIMECHANGES_SIZE + TIMECOUNTERS_SIZE + DRUGS_SIZE +
+      STATS_SIZE + PATHING_SIZE);
     var nodes = count(r, 100000, 'path length');
     r.skip(nodes * PATHST_SIZE);
     var ring = r.u8();
@@ -355,6 +414,21 @@
     if (ring) { r.skip(KEYRING_SIZE); }
     layout.end = r.pos;
     return layout;
+  }
+
+  function int32Bytes(v) {
+    return new Uint8Array([v & 0xFF, (v >>> 8) & 0xFF, (v >>> 16) & 0xFF, (v >>> 24) & 0xFF]);
+  }
+
+  function concat(parts) {
+    var length = parts.reduce(function (n, p) { return n + p.length; }, 0);
+    var out = new Uint8Array(length);
+    var at = 0;
+    parts.forEach(function (p) {
+      out.set(p, at);
+      at += p.length;
+    });
+    return out;
   }
 
   // ===========================================================================
@@ -396,13 +470,14 @@
     }
     this.profileEnd = r.pos;
 
+    this.inventorySystem = bytes[HEADER_GAME_OPTIONS + GO_INVENTORY_SYSTEM];
+    this.attachmentSystem = bytes[HEADER_GAME_OPTIONS + GO_ATTACHMENT_SYSTEM];
+
     for (var slot = 0; slot < TOTAL_SOLDIERS; ++slot) {
       var active = r.u8();
       if (active === 0) { continue; }
       if (active !== 1) { throw new J.FormatError('ubActive = ' + active + ' for soldier ' + slot); }
-      var at = r.pos;
-      var layout = readSoldier(r);
-      var soldier = new Soldier113(bytes.subarray(at, layout.end), at, slot, layout, this.traits);
+      var soldier = new Soldier113(bytes, readSoldier(r), slot, this.traits);
       soldier.validateChecksum();
       this.mercs.push(soldier);
     }
@@ -444,16 +519,41 @@
     });
   };
 
+  /**
+   * Builds the file: everything up to the soldiers (profiles patched in
+   * place), the soldier section rebuilt from the records (they may have
+   * changed size), then the rest of the file unchanged. The save format is
+   * read sequentially, so later sections do not depend on absolute offsets.
+   */
   SaveGame113.prototype.save = function () {
-    var out = new Uint8Array(this.bytes);
-    this.actors.forEach(function (a) { out.set(a.encode(), a.offset); });
-    this.mercs.forEach(function (m) { out.set(m.encode(), m.offset); });
-    return out;
+    var head = new Uint8Array(this.bytes.subarray(0, this.profileEnd));
+    this.actors.forEach(function (a) { head.set(a.encode(), a.offset); });
+    var bySlot = {};
+    this.mercs.forEach(function (m) { bySlot[m.slot] = m; });
+    var parts = [head];
+    for (var slot = 0; slot < TOTAL_SOLDIERS; ++slot) {
+      if (Object.prototype.hasOwnProperty.call(bySlot, slot)) {
+        parts.push(new Uint8Array([1]), bySlot[slot].encode());
+      } else {
+        parts.push(new Uint8Array([0]));
+      }
+    }
+    var section = concat(parts.slice(1));
+    parts = [head, section, this.bytes.subarray(this.soldierEnd)];
+    this.pendingSoldierEnd = this.profileEnd + section.length;
+    return concat(parts);
   };
 
+  /** Call after the bytes returned by save() were written successfully. */
   SaveGame113.prototype.commitSaved = function (bytes) {
     this.bytes = bytes;
+    this.soldierEnd = this.pendingSoldierEnd;
   };
+
+  /** Parses serialized OBJECTTYPE bytes into a node tree (used by J.Items113). */
+  SaveGame113.readObject = function (bytes) { return readObject(new Reader(bytes)); };
+  SaveGame113.OBJECTDATA_SIZE = OBJECTDATA_SIZE;
+  SaveGame113.OBJECT_POD = OBJECT_POD;
 
   J.SaveGame113 = SaveGame113;
 })(this.JAPE = this.JAPE || {});

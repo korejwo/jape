@@ -199,6 +199,8 @@
   function StatPanel($root, onChanged) {
     var self = this;
     this.views = [];
+    this.viewByField = {};
+    this.bumpButtons = [];
     this.onChanged = onChanged;
 
     var $table = $('<table class="grid stat-grid">');
@@ -208,6 +210,7 @@
 
     function view(v) {
       self.views.push(v);
+      self.viewByField[v.fieldName] = v;
       v.onChange(function (src, oldV, newV) { self.onChanged(src.fieldName, oldV, newV); });
       return v.$el;
     }
@@ -220,9 +223,26 @@
     function byteRow(title, field) {
       $('<tr>').append(td('lbl', title), num(field), spacer(5)).appendTo($body);
     }
-    function incRow(title, field, incField) {
-      $('<tr>').append(td('lbl', title), num(field), td('sep right', '(+'), num(incField),
-        td('sep', ')'), spacer(2)).appendTo($body);
+    function incRow(title, field, incField, withBumps) {
+      var $row = $('<tr>').append(td('lbl', title), num(field), td('sep right', '(+'), num(incField),
+        td('sep', ')'));
+      if (withBumps) {
+        $row.append(td('bump').append(bumpButton(title, field, incField, 1)),
+          td('bump').append(bumpButton(title, field, incField, 10)));
+      } else {
+        $row.append(spacer(2));
+      }
+      $row.appendTo($body);
+    }
+    function bumpButton(title, field, incField, amount) {
+      var $b = $('<button type="button" class="btn bump">').text('+' + amount)
+        .attr({
+          title: 'Raise ' + title + ' by ' + amount + ' (up to ' + SKILL_MAX + '); the value in brackets grows by the same amount',
+          'aria-label': title + ' +' + amount
+        })
+        .on('click', function () { self.bump(field, incField, amount); });
+      self.bumpButtons.push($b);
+      return $b;
     }
     function choiceRow(title, field) {
       var options = J.SKILL_NAMES.map(function (n, i) { return { id: i, name: n }; });
@@ -236,15 +256,16 @@
       td('sep right', '(+'), num('Health Inc'), td('sep', ')')).appendTo($body);
     byteRow('Energy', 'Energy');
     byteRow('Morale', 'Morale');
-    incRow('Agility', 'Agility', 'Agility Inc');
-    incRow('Dexterity', 'Dexterity', 'Dexterity Inc');
-    incRow('Strength', 'Strength', 'Strength Inc');
+    // +1 / +10 buttons (JA2 1.0x saves only) on the rows marked true.
+    incRow('Agility', 'Agility', 'Agility Inc', true);
+    incRow('Dexterity', 'Dexterity', 'Dexterity Inc', true);
+    incRow('Strength', 'Strength', 'Strength Inc', true);
     incRow('Leadership', 'Leadership', 'Leadership Inc');
-    incRow('Wisdom', 'Wisdom', 'Wisdom Inc');
-    incRow('Marksmanship', 'Marksmanship', 'Marksmanship Inc');
-    incRow('Explosives', 'Explosives', 'Explosives Inc');
-    incRow('Mechanical', 'Mechanical', 'Mechanical Inc');
-    incRow('Medical', 'Medical', 'Medical Inc');
+    incRow('Wisdom', 'Wisdom', 'Wisdom Inc', true);
+    incRow('Marksmanship', 'Marksmanship', 'Marksmanship Inc', true);
+    incRow('Explosives', 'Explosives', 'Explosives Inc', true);
+    incRow('Mechanical', 'Mechanical', 'Mechanical Inc', true);
+    incRow('Medical', 'Medical', 'Medical Inc', true);
     incRow('Exp Lvl', 'Level', 'Level Inc');
     choiceRow('Skill1', 'Skill1');
     choiceRow('Skill2', 'Skill2');
@@ -275,6 +296,30 @@
     var hasSkill3 = !!struct && struct.has('Skill3');
     this.$skill3Row.toggle(hasSkill3);
     $('.app').toggleClass('tall', hasSkill3);
+
+    // +1 / +10 only for JA2 1.0x saves (save versions up to 99).
+    var classic = !!actor && actor.version <= 99;
+    this.bumpButtons.forEach(function ($b) {
+      $b.toggle(classic).prop('disabled', !editable);
+    });
+  };
+
+  /** Highest value a skill reaches in the game. */
+  var SKILL_MAX = 100;
+
+  /**
+   * Raises a skill by `amount` (not above SKILL_MAX) and its increase, the
+   * value in brackets, by the same number of points.
+   */
+  StatPanel.prototype.bump = function (field, incField, amount) {
+    var stat = this.viewByField[field];
+    var inc = this.viewByField[incField];
+    if (!stat.field() || !inc.field()) { return; }
+    var current = stat.struct.getInt(field);
+    var gain = Math.min(SKILL_MAX, current + amount) - current;
+    if (gain <= 0) { return; }
+    stat.setValue(current + gain);
+    inc.setValue(Math.min(inc.field().max, inc.struct.getInt(incField) + gain));
   };
 
   // ===========================================================================
@@ -813,6 +858,136 @@
   }
 
   // ===========================================================================
+  // JA2 1.13 v5 inventory (replace item X with item Y)
+  // ===========================================================================
+
+  function Inventory113Panel($root, onChanged) {
+    var self = this;
+    this.onChanged = onChanged;
+    this.inv = null;
+    this.editable = false;
+    this.index = -1;
+
+    this.$el = $('<div class="inv113">').hide().appendTo($root);
+    this.$list = $('<div class="listbox inv-list" role="listbox" tabindex="0" aria-label="Inventory">')
+      .appendTo(this.$el);
+
+    var $table = $('<table class="grid detail-grid detail113">').appendTo(this.$el);
+    $table.append('<colgroup><col class="c-label"><col></colgroup>');
+    function row(label, $value) {
+      $('<tr>').append(td('lbl', label), td(null).append($value)).appendTo($table);
+      return $value;
+    }
+    this.$name = row('Item', $('<span class="value">'));
+    this.$status = row('Status', $('<span class="value">'));
+    this.$select = row('Replace with', $('<select class="field item" aria-label="Replace with">'));
+    this.$ammo = row('Ammo', $('<span class="value">'));
+    this.$attachments = row('Attachments', $('<span class="value">'));
+    this.$note = $('<p class="inv-note">').appendTo(this.$el);
+
+    this.$list.on('mousedown', '.opt', function () { self.selectSlot(+$(this).data('slot')); });
+    this.$list.on('keydown', function (e) {
+      var $rows = self.$list.find('.opt');
+      var pos = $rows.index($rows.filter('.selected'));
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        pos = e.key === 'ArrowDown' ? Math.min($rows.length - 1, pos + 1) : Math.max(0, pos - 1);
+        if ($rows[pos]) { self.selectSlot(+$($rows[pos]).data('slot')); }
+      }
+    });
+    this.$select.on('change', function () { self.apply(parseInt(self.$select.val(), 10)); });
+  }
+
+  Inventory113Panel.prototype.show = function (visible) { this.$el.toggle(visible); };
+
+  /** @param merc soldier record or null; editable only for the player's team */
+  Inventory113Panel.prototype.setSoldier = function (merc, game, editable) {
+    var db = J.Items113.db();
+    this.inv = merc && db ? new J.Items113.Inventory(merc, game, db) : null;
+    this.editable = editable;
+    this.index = -1;
+    this.renderList();
+    var first = this.inv ? this.inv.slots()[0] : null;
+    this.selectSlot(first ? first.index : -1);
+    if (!this.inv) {
+      this.$note.text(merc ? 'Item data is not available.' : 'No soldier record: this character is not in the game world.');
+    }
+  };
+
+  Inventory113Panel.prototype.renderList = function () {
+    var self = this;
+    this.$list.empty();
+    if (!this.inv) { return; }
+    this.inv.slots().forEach(function (s) {
+      $('<div class="opt" role="option">')
+        .data('slot', s.index)
+        .attr('title', s.item ? s.item.longName : s.name)
+        .append($('<span class="slot">').text(s.slotName),
+          $('<span class="name">').text(s.name + (s.number > 1 ? ' ×' + s.number : '')))
+        .toggleClass('selected', s.index === self.index)
+        .appendTo(self.$list);
+    });
+  };
+
+  Inventory113Panel.prototype.selectSlot = function (index) {
+    this.index = index;
+    this.$list.find('.opt').each(function () {
+      $(this).toggleClass('selected', +$(this).data('slot') === index);
+    });
+    var info = this.inv && index >= 0 ? this.inv.slot(index) : null;
+    this.$select.empty().prop('disabled', true);
+    if (!info) {
+      this.$name.text('');
+      this.$status.text('');
+      this.$ammo.text('');
+      this.$attachments.text('');
+      this.$note.text(this.inv ? 'Empty inventory.' : '');
+      return;
+    }
+    this.$name.text(info.name + (info.number > 1 ? ' ×' + info.number : '') + '  (#' + info.id + ')')
+      .attr('title', info.item ? info.item.longName : '');
+    this.$status.text(info.status + '%');
+    this.$ammo.text(info.ammo ? info.ammo.name + ', ' + info.ammo.shots + ' rounds (' + info.ammo.calibre +
+      ', ' + info.ammo.type + ')' : '—');
+    this.$attachments.text(info.attachments.length ? info.attachments.join(', ') : 'none');
+
+    var opts = this.inv.options(index);
+    if (opts.reason) {
+      $('<option>').val(String(info.id)).text(info.name).appendTo(this.$select);
+      this.$note.text(opts.reason);
+      return;
+    }
+    var frag = document.createDocumentFragment();
+    opts.items.forEach(function (it) {
+      frag.appendChild($('<option>').val(String(it.id)).text(it.name).attr('title', it.longName)[0]);
+    });
+    this.$select.append(frag).val(String(info.id)).prop('disabled', !this.editable);
+    this.$note.text(this.editable ?
+      'Choose another ' + opts.group + '. Attachments are removed; the new item comes with its factory attachments.' :
+      'Read-only: this character is not on your team.');
+  };
+
+  Inventory113Panel.prototype.apply = function (newId) {
+    var info = this.inv.slot(this.index);
+    if (!info || newId === info.id) { return; }
+    var error = this.inv.check(this.index, newId);
+    if (error) {
+      this.$select.val(String(info.id));
+      messageDialog(error);
+      return;
+    }
+    var summary = this.inv.replace(this.index, newId);
+    this.renderList();
+    this.selectSlot(this.index);
+    var notes = ['Replaced ' + info.name + ' with ' + J.Items113.db().name(newId) + '.'];
+    if (summary.removed.length) { notes.push('Removed: ' + summary.removed.join(', ') + '.'); }
+    if (summary.added.length) { notes.push('Factory attachments: ' + summary.added.join(', ') + '.'); }
+    if (summary.ammo) { notes.push('Ammo: ' + summary.ammo + '.'); }
+    this.$note.text(notes.join(' '));
+    this.onChanged();
+  };
+
+  // ===========================================================================
   // Application (JapeFrame)
   // ===========================================================================
 
@@ -826,7 +1001,9 @@
 
     this.$list = $('#actor-list');
     this.statPanel = new StatPanel($('#stat-panel'), function (field) { self.dataChanged(field); });
-    this.itemPanel = new ItemPanel($('#item-panel'), function () { self.dataChanged(null); });
+    this.$classicItems = $('<div class="classic-items">').appendTo('#item-panel');
+    this.itemPanel = new ItemPanel(this.$classicItems, function () { self.dataChanged(null); });
+    this.inv113 = new Inventory113Panel($('#item-panel'), function () { self.dataChanged(null); });
 
     this.bindMenus();
     this.bindList();
@@ -1006,6 +1183,14 @@
   App.prototype.setActor = function (actor, merc) {
     var owned = !!merc && merc.isOnPlayerTeam();
     this.statPanel.setActor(actor, merc, owned);
+
+    // JA2 1.13 v5 saves get their own inventory panel.
+    var v5 = !!this.game && this.game.version === J.SaveGame113.VERSION;
+    this.$classicItems.toggle(!v5);
+    this.inv113.show(v5);
+    if (v5) {
+      this.inv113.setSoldier(merc, this.game, owned);
+    }
 
     var mode = 'none';
     if (merc && this.game.version > 99) {

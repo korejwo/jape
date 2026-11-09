@@ -22,7 +22,7 @@ Supported saves:
 |---|---|---|
 | JA2 1.0x | 95–99 | stats and inventory |
 | JA2 1.13, 2008 builds | 103 | stats |
-| JA2 1.13 release **v5** ([1dot13/source](https://github.com/1dot13/source) tag `v5`) | 185 | stats, traits, records |
+| JA2 1.13 release **v5** ([1dot13/source](https://github.com/1dot13/source) tag `v5`) | 185 | stats, traits, records, replacing items |
 
 ## JA2 1.13 v5 saves (version 185)
 
@@ -40,7 +40,29 @@ Supported saves:
 - Kills / Assists / Shots Fired / Shots Hit / Battles / Times Wounded map to the
   1.13 records 1.13 itself converts the classic values into: regular-army kills,
   merc assists, shots fired, shots hit, tactical battles, times wounded by shots.
-- Inventory is not editable (items come from the mod's Items.xml).
+- Inventory: the panel on the right lists the soldier's items; an item can be
+  replaced with another of the same kind – gun with gun, melee weapon with the
+  same melee type, armour with armour of the same class (helmet, vest,
+  leggings, plate). LBE gear, ammo, grenades, kits and other items cannot be
+  replaced. Item data (names, classes, calibres, factory attachments) is built
+  in, from the data of the v5 release (`js/items113_v5.js`, generated from
+  github.com/1dot13/gamedir commit dff4c929d5f9); mods that change items are not
+  taken into account. Item names are the English ones from `Data-1.13`.
+- Replacing follows the game's own item creation (`CreateItem`, `CreateGun`,
+  `AttachDefaultAttachments` in the v5 sources):
+  - the old item's attachments are removed and the new one gets its factory
+    attachments (`DefaultAttachment`);
+  - a gun keeps its loaded magazine if the calibre matches (rounds limited to
+    the new magazine size), otherwise it gets its default magazine, full;
+  - every object of a stack is replaced, status is kept;
+  - a pocket only takes items no bigger than the one it held; a two-handed gun
+    in the hand needs an empty second hand, and the second hand is locked while
+    the hand holds a two-handed gun.
+- With the new attachment system the attachment list is saved with just the
+  factory attachments; the game sorts them into their slots when it loads the
+  save, and an item without factory attachments gets its empty slots when its
+  description is first opened. Because objects change size, the soldier
+  section of the file is rebuilt; everything after it is copied unchanged.
 - Only the v5 format is supported for version 185: development builds of the
   ExtraMercs branch also wrote "185" with a different soldier layout, and the
   current development version writes 187.
@@ -72,6 +94,9 @@ Supported saves:
   duplicate names (Key, Syringe, Bloodcat Claws) are stored correctly.
 - Item editing is disabled, with a note, for 1.13 saves (as in the original,
   which never supported it).
+- JA2 1.0x saves: Agility, Dexterity, Strength, Wisdom, Marksmanship,
+  Explosives, Mechanical and Medical have **+1** and **+10** buttons. They raise
+  the value, up to 100, and the increase in brackets by the same number of points.
 - Added: Save As..., status bar, unsaved-changes warning when closing the tab.
 
 ## Tests
@@ -87,7 +112,10 @@ the edited file byte-for-byte with output of the original Java program.
 
 For JA2 1.13 v5 saves it checks that all 255 profiles load, team members are
 linked, and that editing a team member and a profile changes only those records
-and reloads with valid checksums.
+and reloads with valid checksums. It also replaces a gun (factory attachments,
+default magazine, same-calibre magazine kept) and an item with an attachment,
+then checks that the file reloads, the items survive, and every other soldier
+and the rest of the file stay byte-identical.
 
 Verified on two JA2 1.0x saves (version 99, Polish release) and one JA2 1.13 v5
 save (version 185). The 1.13 version 103 code path is a direct port of JAPE 0.41
@@ -101,4 +129,6 @@ but has not been run against a real save of that version.
 - `js/fields.js`, `js/model.js` – field types, Actor / Mercenary / Item structures
 - `js/savegame.js` – reading and writing the save file
 - `js/savegame113.js` – JA2 1.13 v5 saves (version 185)
+- `js/items113_v5.js` – JA2 1.13 v5 item data (generated, see above)
+- `js/items113.js` – 1.13 item rules: replacement options, building new objects
 - `js/ui.js` – the interface (jQuery)

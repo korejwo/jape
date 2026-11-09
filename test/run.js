@@ -18,7 +18,7 @@ const path = require('path');
 const vm = require('vm');
 
 const WEB = path.resolve(__dirname, '..');
-const SCRIPTS = ['codetables.js', 'items.js', 'alg.js', 'fields.js', 'model.js', 'savegame.js', 'savegame113.js'];
+const SCRIPTS = ['codetables.js', 'items.js', 'alg.js', 'fields.js', 'model.js', 'savegame.js', 'savegame113.js', 'items113_v5.js', 'items113.js'];
 
 function loadEngine() {
   const ctx = vm.createContext({});
@@ -254,10 +254,63 @@ function test113(f, game) {
   if (other !== -1) { check(f + ': unhired profile edit persisted', back.actors[other].getInt('Wisdom') === 81); }
   const changed = [];
   for (let i = 0; i < out.length; ++i) { if (out[i] !== game.bytes[i]) { changed.push(i); } }
-  const inside = (o, rec) => o >= rec.offset && o < rec.offset + rec.data.length;
+  const inside = (o, rec) => o >= rec.offset && o < rec.offset + (rec.length || rec.data.length);
   const touched = [merc, game.actors[index]].concat(other !== -1 ? [game.actors[other]] : []);
   check(f + ': only the edited records changed (' + changed.length + ' bytes)',
     changed.length > 0 && changed.every((o) => touched.some((rec) => inside(o, rec))));
+
+  testSwap113(f, J.SaveGame.load(new Uint8Array(game.bytes), f));
+}
+
+/** JA2 1.13 v5: replace items (gun, armour with an attachment), reload, compare. */
+function testSwap113(f, game) {
+  const db = J.Items113.db();
+  check(f + ': v5 item data loaded', db && db.list.length > 1700);
+  const merc = game.mercs.find((m) => m.isOnPlayerTeam() && new J.Items113.Inventory(m, game, db).slot(5));
+  if (!merc) { check(f + ': a team member holds something in the hand', false); return; }
+  const inv = new J.Items113.Inventory(merc, game, db);
+  const hand = inv.slot(5);
+  const gun = db.group('gun').find((i) => !i.twoHanded && i.defaults.length > 0 && i.id !== hand.id &&
+    db.weapon(i.id).calibre !== (db.weapon(hand.id) || {}).calibre);
+  const twoHanded = db.group('gun').find((i) => i.twoHanded);
+  if (inv.slot(6)) {
+    check(f + ': two-handed gun refused while the second hand is busy', /second hand/.test(inv.check(5, twoHanded.id) || ''));
+  }
+  const s1 = inv.replace(5, gun.id);
+  const mag = db.magazineOf(db.defaultMagazine(gun.id));
+  check(f + ': gun replaced with factory attachments and default magazine',
+    inv.slot(5).id === gun.id && JSON.stringify(inv.slot(5).attachments) === JSON.stringify(gun.defaults.map((d) => db.name(d))) &&
+    inv.slot(5).ammo.item === mag.itemId && inv.slot(5).ammo.shots === mag.magSize && /^loaded /.test(s1.ammo));
+  const sameCalibre = db.group('gun').find((i) => i.id !== gun.id && !i.twoHanded &&
+    db.weapon(i.id).calibre === db.weapon(gun.id).calibre);
+  if (sameCalibre) {
+    inv.replace(5, sameCalibre.id);
+    check(f + ': same calibre keeps the loaded magazine', inv.slot(5).ammo.item === mag.itemId &&
+      inv.slot(5).ammo.shots === Math.min(mag.magSize, db.weapon(sameCalibre.id).magSize));
+  }
+  const withAttachment = inv.slots().find((s) => s.attachments.length && s.item && db.groupOf(s.item));
+  if (withAttachment) {
+    const other = inv.options(withAttachment.index).items.find((i) => i.id !== withAttachment.id && !i.defaults.length);
+    const s2 = inv.replace(withAttachment.index, other.id);
+    check(f + ': attachments removed on replace', s2.removed.length > 0 && inv.slot(withAttachment.index).attachments.length === 0);
+  }
+  const before = inv.slots().map((s) => s.index + ':' + s.id + ':' + s.attachments.join('+'));
+
+  const out = game.save();
+  let back = null;
+  try { back = J.SaveGame.load(out, f); } catch (e) { check(f + ': save with replaced items reloads', false, e.message); return; }
+  check(f + ': save with replaced items reloads with valid checksums', true);
+  const merc2 = back.mercs.find((m) => m.slot === merc.slot);
+  const after = new J.Items113.Inventory(merc2, back, db).slots().map((s) => s.index + ':' + s.id + ':' + s.attachments.join('+'));
+  check(f + ': replaced items survive the reload', JSON.stringify(after) === JSON.stringify(before), after);
+  const others = game.mercs.filter((m) => m !== merc);
+  check(f + ': other soldiers unchanged', others.every((m) => {
+    const a = m.encode();
+    const b = back.mercs.find((x) => x.slot === m.slot).encode();
+    return a.length === b.length && a.every((v, k) => v === b[k]);
+  }));
+  const tail = 4096;
+  check(f + ': rest of the file unchanged', out.subarray(out.length - tail).every((v, k) => v === game.bytes[game.bytes.length - tail + k]));
 }
 
 console.log(failures === 0 ? '\nAll checks passed.' : '\n' + failures + ' check(s) FAILED.');
