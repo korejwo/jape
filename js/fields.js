@@ -81,6 +81,16 @@
     data[o + 3] = (value >>> 24) & 0xFF;
   };
 
+  /** Unsigned 32-bit little-endian integer (UINT32). */
+  function UIntField(offset) { NumericField.call(this, offset, 4, 0, 0xFFFFFFFF); }
+  UIntField.prototype = Object.create(NumericField.prototype);
+  UIntField.prototype.getInt = function (data) { return IntField.prototype.getInt.call(this, data) >>> 0; };
+  UIntField.prototype.setInt = function (data, value) { IntField.prototype.setInt.call(this, data, value); };
+  UIntField.prototype.set = function (data, str) {
+    if (!/^\d+$/.test(String(str))) { throw new NumberFormatError('For input string: "' + str + '"'); }
+    this.setInt(data, Number(str));
+  };
+
   // ---- String field ------------------------------------------------------------
 
   /** Zero-terminated UTF-16LE string occupying `length` bytes. */
@@ -228,6 +238,7 @@
   J.SByteField = SByteField;
   J.ShortField = ShortField;
   J.IntField = IntField;
+  J.UIntField = UIntField;
   J.StringField = StringField;
   J.ChoiceField = ChoiceField;
   J.NameTable = NameTable;

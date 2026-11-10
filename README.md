@@ -95,7 +95,7 @@ Supported saves:
 - Number boxes accept digits only, clamped to the field: 0–127 for values the
   game stores as signed bytes (stats, energy, morale, item status – the original
   allowed up to 255, which the game reads as negative), 0–255 or 0–65535
-  otherwise. Name/Nickname are limited to 30/10 characters and stored as real UTF-16.
+  otherwise, 0–4,294,967,295 for Money Value. Name/Nickname are limited to 30/10 characters and stored as real UTF-16.
 - The character list follows Nickname edits; option lists use item ids, so
   duplicate names (Key, Syringe, Bloodcat Claws) are stored correctly.
 - Item editing is disabled, with a note, for 1.13 saves (as in the original,
@@ -103,7 +103,11 @@ Supported saves:
 - JA2 1.0x saves: Agility, Dexterity, Strength, Wisdom, Marksmanship,
   Explosives, Mechanical and Medical have **+1** and **+10** buttons. They raise
   the value, up to 100, and the increase in brackets by the same number of points.
-- JA2 1.0x saves: **Full Dress** (under the leg armour slot) puts on Coated
+- JA2 1.0x saves: the custom buttons sit in their own column right of the
+  inventory slots (the window is therefore wider than the original, about 1040 px):
+  Full Dress, Add AUG, Add LAW and Add rifle for the selected merc, then
+  Repair all, Reload all and Full Dress all for the whole team.
+- **Full Dress** puts on Coated
   Spectra Helmet, Coated Spectra Vest with 4 Ceramic Plates, Coated Spectra
   Leggings, Night Vision Goggles and Extended Ear, all at 100%, replacing what
   is in those five slots. The stored weight is set as the game computes it
@@ -122,6 +126,18 @@ Supported saves:
   The game itself allows one LAW per slot and only in big pockets or hands;
   firing a LAW turns the whole object in the hand into one discarded LAW, so
   fire LAWs one at a time, not from the stack of 6.
+- JA2 1.0x saves, whole team (every merc marked `*`, whoever is selected):
+  **Repair all** raises every item and attachment status below 100% to 100%
+  (magazines are left alone: their "status" is the rounds); **Reload all** loads
+  every single magazine-fed gun with 255 rounds (the most the game's
+  ubGunShotsLeft holds; a gun holding a magazine of another calibre gets its
+  default magazine) and updates its weight; **Full Dress all**
+  is Full Dress for everyone.
+- Money Value is the full 4-byte amount (`uiMoneyAmount`); the original edited
+  only the low 2 bytes, so amounts above 65,535 were cut. The game itself keeps
+  at most 20,000 per slot (10,000 in a small pocket).
+- Object weights are computed as the game does (item + attachments + loaded
+  magazine) from the JA2 1.12 item weights in `js/weights.js`.
 - Added: Save As..., status bar, unsaved-changes warning when closing the tab.
 
 ## Tests
@@ -150,6 +166,7 @@ but has not been run against a real save of that version.
 
 - `js/codetables.js`, `js/items.js` – data tables generated from `JapeConst.java`
   and `ItemExemplar.java`
+- `js/weights.js` – JA2 1.12 item weights (generated from the JA2 Stracciatella data)
 - `js/alg.js` – save cipher and checksums
 - `js/fields.js`, `js/model.js` – field types, Actor / Mercenary / Item structures
 - `js/savegame.js` – reading and writing the save file

@@ -140,7 +140,8 @@
     'Item 4 %': B7(0x07),
     'Item 5 %': B7(0x08),
     'Item 6 %': B7(0x09),
-    'Money Value': S(0x08),
+    // uiMoneyAmount is a UINT32 (the original JAPE edited only its low 2 bytes)
+    'Money Value': new J.UIntField(0x08),
     'Ammo Variety': B(0x05),
     'Ammo Quantity': S(0x06),
     'Ammo ID': ITEM_CHOICE(0x08),
@@ -412,14 +413,34 @@
     { slot: Mercenary.HEADGEAR_2, id: 0xD2 }                                // Extended Ear
   ];
 
+  // ---- Weight ----------------------------------------------------------------------
+
+  /** Item weight (0.1 kg) of the JA2 1.12 data (js/weights.js); 0 if unknown. */
+  J.itemWeight = function (id) {
+    var w = J.WEIGHTS_112 && J.WEIGHTS_112[id];
+    return w ? w[0] : 0;
+  };
+  function perPocket(id) {
+    var w = J.WEIGHTS_112 && J.WEIGHTS_112[id];
+    return w ? w[1] : 0;
+  }
+
   /**
-   * Item weights (ubWeight, 0.1 kg) of the JA2 1.12 item data as published by
-   * the JA2 Stracciatella project. The game stores an object's weight as the
-   * item's weight plus its attachments'.
+   * The weight the game stores in an object (CalculateObjectWeight): the
+   * item's weight; for items that do not stack (ubPerPocket <= 1) plus the
+   * attachments and, for a loaded gun, its magazine.
    */
-  J.ITEM_WEIGHTS = {
-    0x14: 36, 0x33: 21, 0x41: 40, 0x5F: 5, 0x71: 10, 0xA9: 29, 0xAF: 35, 0xB6: 13, 0xB7: 12,
-    0xCF: 5, 0xD0: 9, 0xD2: 9, 0xD3: 9, 0xF1: 4
+  J.objectWeight = function (item) {
+    var id = item.getInt('Item ID');
+    var weight = J.itemWeight(id);
+    if (perPocket(id) <= 1) {
+      for (var k = 1; k <= 4; ++k) { weight += J.itemWeight(item.getInt('Attachment ' + k + ' ID')); }
+      var ex = J.exemplar(id);
+      if (ex && ex.category === CAT.WEAPON && ex.compatibleAmmoIds.length && item.data[6] > 0) {
+        weight += J.itemWeight(item.getInt('Ammo ID'));   // ubGunShotsLeft > 0
+      }
+    }
+    return weight;
   };
 
   var NO_PROFILE = 200;
@@ -447,7 +468,8 @@
     item.setInt('Ammo Quantity', 1);           // ubGunShotsLeft
     item.setInt('Ammo %', 100);                // bGunAmmoStatus
     item.setInt('Unknown 4', NO_PROFILE);     // ubImprintID
-    item.setInt('Weight', J.ITEM_WEIGHTS[LAW]);
+    item.setInt('Quantity', 1);
+    item.setInt('Weight', J.objectWeight(item));   // weight of one LAW, before stacking
     for (var k = 2; k <= count; ++k) { item.setInt('Item ' + k + ' %', 100); }
     item.setInt('Quantity', count);
   };
@@ -470,13 +492,11 @@
     item.setInt('Ammo ID', gun.ammo);          // usGunAmmoItem
     item.setInt('Ammo %', 100);                // bGunAmmoStatus
     item.setInt('Unknown 4', NO_PROFILE);     // ubImprintID
-    var weight = J.ITEM_WEIGHTS[gun.id] + J.ITEM_WEIGHTS[gun.ammo];
     gun.attachments.forEach(function (id, k) {
       item.setInt('Attachment ' + (k + 1) + ' ID', id);
       item.setInt('Attachment ' + (k + 1) + ' %', 100);
-      weight += J.ITEM_WEIGHTS[id];
     });
-    item.setInt('Weight', weight);
+    item.setInt('Weight', J.objectWeight(item));
   };
 
   /** Auto Rocket Rifle, 255 HEAP minirockets, Laser Scope and Sniper Scope. */
@@ -505,14 +525,85 @@
       item.setInt('Item ID', piece.id);
       item.setInt('Quantity', 1);
       item.setInt('Item 1 %', 100);
-      var weight = J.ITEM_WEIGHTS[piece.id];
       (piece.attachments || []).forEach(function (id, k) {
         item.setInt('Attachment ' + (k + 1) + ' ID', id);
         item.setInt('Attachment ' + (k + 1) + ' %', 100);
-        weight += J.ITEM_WEIGHTS[id];
       });
-      item.setInt('Weight', weight);
+      item.setInt('Weight', J.objectWeight(item));
     });
+  };
+
+  // ---- Repair / reload -------------------------------------------------------------
+
+  function status(b) { return (b << 24) >> 24; }   // INT8
+
+  /**
+   * Raises the status of every item and attachment below 100% to 100%.
+   * Which bytes are statuses depends on the item (the OBJECTTYPE union):
+   * a magazine's "status" is its rounds (left alone), money and a single gun
+   * have one status byte followed by other data, keys have six.
+   * @return number of statuses raised
+   */
+  Mercenary.prototype.repairAll = function () {
+    var raised = 0;
+    this.items.forEach(function (item) {
+      var ex = J.exemplar(item.getInt('Item ID'));
+      if (!ex || ex.id === 0) { return; }
+      var count = Math.max(1, item.data[2]);    // ubNumberOfObjects
+      var statuses;
+      if (ex.category === CAT.AMMO) {
+        statuses = 0;
+      } else if (ex.category === CAT.MONEY || (ex.category === CAT.WEAPON && count === 1)) {
+        statuses = 1;
+      } else if (ex.category === CAT.KEY) {
+        statuses = Math.min(count, 6);
+      } else {
+        statuses = Math.min(count, 8);          // bStatus[MAX_OBJECTS_PER_SLOT]
+      }
+      for (var k = 0; k < statuses; ++k) {
+        if (status(item.data[4 + k]) < 100) { item.data[4 + k] = 100; ++raised; }
+      }
+      for (var a = 0; a < 4; ++a) {             // usAttachItem[4] at 0x10, bAttachStatus[4] at 0x18
+        if (item.getInt('Attachment ' + (a + 1) + ' ID') && status(item.data[0x18 + a]) < 100) {
+          item.data[0x18 + a] = 100;
+          ++raised;
+        }
+      }
+    });
+    return raised;
+  };
+
+  /**
+   * Loads every magazine-fed gun (single, not a stack) with RELOAD_ROUNDS
+   * rounds, the most ubGunShotsLeft (UINT8) holds. A gun without a magazine
+   * of its calibre gets its default magazine. Weight is updated.
+   * @return number of guns reloaded
+   */
+  var RELOAD_ROUNDS = 255;
+  J.RELOAD_ROUNDS = RELOAD_ROUNDS;
+  Mercenary.prototype.reloadAll = function () {
+    var reloaded = 0;
+    this.items.forEach(function (item) {
+      var ex = J.exemplar(item.getInt('Item ID'));
+      if (!ex || ex.category !== CAT.WEAPON || !ex.defaultAmmoId || item.data[2] !== 1) { return; }
+      var changed = false;
+      if (ex.compatibleAmmoIds.indexOf(item.getInt('Ammo ID')) === -1) {
+        var ammo = ex.defaultAmmoId;
+        item.setInt('Ammo ID', ammo);
+        item.setInt('Ammo Variety', J.exemplar(ammo).ammoVariety);
+        item.setInt('Ammo %', 100);
+        changed = true;
+      }
+      if (item.data[6] !== RELOAD_ROUNDS) {     // ubGunShotsLeft
+        item.data[6] = RELOAD_ROUNDS;
+        changed = true;
+      }
+      if (changed) {
+        item.setInt('Weight', J.objectWeight(item));
+        ++reloaded;
+      }
+    });
+    return reloaded;
   };
 
   J.ItemExemplar = ItemExemplar;

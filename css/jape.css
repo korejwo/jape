@@ -38,7 +38,7 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  min-width: 860px;
+  min-width: 1040px;
   min-height: 545px;
 }
 
@@ -281,7 +281,7 @@ select.field:disabled {
 
 .slots {
   display: grid;
-  grid-template-columns: repeat(3, 112px);
+  grid-template-columns: repeat(4, 112px);   /* 3 slot columns + custom buttons */
   grid-auto-rows: var(--row);
   column-gap: 34px;
   margin-bottom: 13px;

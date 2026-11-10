@@ -18,7 +18,7 @@ const path = require('path');
 const vm = require('vm');
 
 const WEB = path.resolve(__dirname, '..');
-const SCRIPTS = ['codetables.js', 'items.js', 'alg.js', 'fields.js', 'model.js', 'savegame.js', 'savegame113.js', 'items113_v5.js', 'items113.js'];
+const SCRIPTS = ['codetables.js', 'items.js', 'alg.js', 'fields.js', 'weights.js', 'model.js', 'savegame.js', 'savegame113.js', 'items113_v5.js', 'items113.js'];
 
 function loadEngine() {
   const ctx = vm.createContext({});
@@ -31,6 +31,13 @@ function loadEngine() {
 const J = loadEngine();
 
 // ---- helpers ---------------------------------------------------------------------
+
+/** Fields this port reads differently from JAPE 0.41 on purpose (left out of the Java comparison). */
+const CHANGED_FROM_JAVA = ['Money Value'];   // UINT32 here, 2 bytes in the original
+
+function withoutChanged(text) {
+  return text.split('\n').filter((l) => !CHANGED_FROM_JAVA.some((n) => l.includes('.' + n + '='))).join('\n');
+}
 
 function dumpStruct(prefix, s, out) {
   Object.keys(s.fields).sort().forEach((n) => {
@@ -126,6 +133,11 @@ function check(name, ok, detail) {
   s.set(d, 'ABCDEFGHIJKLMNOP');
   check('name truncated to field length', s.get(d) === 'ABCDEFGHIJ', s.get(d));
 
+  const money = new J.Item(new Uint8Array(36));
+  money.setInt('Item ID', 0xDB);
+  money.set('Money Value', '100000');
+  check('Money Value is a 4-byte amount', money.getInt('Money Value') === 100000 && money.get('Money Value') === '100000' &&
+    Array.from(money.data.slice(8, 12)).join() === '160,134,1,0');
   const sh = new J.ShortField(0);
   sh.setInt(d, 65535);
   check('short field unsigned', sh.getInt(d) === 65535);
@@ -187,8 +199,8 @@ for (const f of files) {
   check(f + ': unchanged save is byte-identical', firstDiff(game.save(), orig) === -1);
 
   if (refDir && tag && fs.existsSync(path.join(refDir, 'java_dump_' + tag + '.txt'))) {
-    const javaDump = fs.readFileSync(path.join(refDir, 'java_dump_' + tag + '.txt'), 'utf8').replace(/\r\n/g, '\n');
-    const jsDump = dump(game);
+    const javaDump = withoutChanged(fs.readFileSync(path.join(refDir, 'java_dump_' + tag + '.txt'), 'utf8').replace(/\r\n/g, '\n'));
+    const jsDump = withoutChanged(dump(game));
     check(f + ': all fields match Java (' + javaDump.split('\n').length + ' lines)', jsDump === javaDump, firstLineDiff(jsDump, javaDump));
   }
 
@@ -209,12 +221,14 @@ for (const f of files) {
       const at = firstDiff(out, javaOut);
       check(f + ': edited save byte-identical to Java', at === -1, 'first difference at byte ' + at);
       if (reloaded) {
-        const javaDump = fs.readFileSync(path.join(refDir, 'java_edit_dump_' + tag + '.txt'), 'utf8').replace(/\r\n/g, '\n');
-        check(f + ': edited fields match Java', dump(reloaded) === javaDump, firstLineDiff(dump(reloaded), javaDump));
+        const javaDump = withoutChanged(fs.readFileSync(path.join(refDir, 'java_edit_dump_' + tag + '.txt'), 'utf8').replace(/\r\n/g, '\n'));
+        const jsEdited = withoutChanged(dump(reloaded));
+        check(f + ': edited fields match Java', jsEdited === javaDump, firstLineDiff(jsEdited, javaDump));
       }
     }
     testFullDress(f, new Uint8Array(orig));
     testQuickItems(f, new Uint8Array(orig));
+    testRepairReload(f, new Uint8Array(orig));
   } else if (edited.version === J.SaveGame113.VERSION) {
     test113(f, edited);
   }
@@ -241,6 +255,35 @@ function testFullDress(f, bytes) {
     'Coated Spectra Leggings|1|100|35|' + none,
     'Night Vision Goggles|1|100|9|' + none,
     'Extended Ear|1|100|9|' + none]), got);
+}
+
+/** JA2 1.0x: Repair all and Reload all on the whole team, save, reload. */
+function testRepairReload(f, bytes) {
+  const game = J.SaveGame.load(bytes, f);
+  const team = game.mercs.filter((m) => m.isOnPlayerTeam() && m.items);
+  const merc = team[0];
+  const worn = merc.items.findIndex((it) => it.getInt('Item ID') &&
+    [J.CAT.AMMO, J.CAT.WEAPON, J.CAT.MONEY].indexOf(J.exemplar(it.getInt('Item ID')).category) === -1);
+  merc.items[worn].setInt('Item 1 %', 37);
+  const raised = team.reduce((n, m) => n + m.repairAll(), 0);
+  const reloaded = team.reduce((n, m) => n + m.reloadAll(), 0);
+  let back = null;
+  try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': repair/reload save reloads', false, e.message); return; }
+  const items = back.mercs.find((m) => m.slot === merc.slot).items;
+  check(f + ': Repair all raised statuses (' + raised + ')', raised >= 1 && items[worn].getInt('Item 1 %') === 100);
+  let ok = true;
+  let guns = 0;
+  const notes = [];
+  back.mercs.filter((m) => m.isOnPlayerTeam() && m.items).forEach((m) => m.items.forEach((it) => {
+    const ex = J.exemplar(it.getInt('Item ID'));
+    if (!ex || ex.category !== J.CAT.WEAPON || !ex.defaultAmmoId || it.data[2] !== 1) { return; }
+    ++guns;
+    const fits = ex.compatibleAmmoIds.indexOf(it.getInt('Ammo ID')) !== -1;
+    if (!(fits && it.data[6] === 255 && it.getInt('Weight') === J.objectWeight(it))) { ok = false; }
+    notes.push(m.get('Nickname') + ' ' + ex.name + ' ' + it.get('Ammo ID') + ' ' + it.data[6]);
+  }));
+  check(f + ': Reload all put 255 rounds in every gun (' + guns + ' guns, ' + reloaded + ' changed)',
+    ok && guns > 0 && reloaded === guns, notes);
 }
 
 /** JA2 1.0x: LAW x6, Auto Rocket Rifle and Steyr AUG from the quick buttons, save, reload. */
