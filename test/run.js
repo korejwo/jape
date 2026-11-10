@@ -147,6 +147,8 @@ function check(name, ok, detail) {
 
   check('item table size', J.ITEMS.length === 302, String(J.ITEMS.length));
   check('Glock 17 ammo list', J.exemplar(1).ammoIds.join(',') === '71,73,75', J.exemplar(1).ammoIds.join(','));
+  check('every gun also takes Minirockets, HEAP (experimental)', J.gunAcceptsAmmo(J.exemplar(0x01), 0x71) &&
+    J.gunAcceptsAmmo(J.exemplar(0x13), 0x71) && J.gunAcceptsAmmo(J.exemplar(0x01), 0x47) && !J.gunAcceptsAmmo(J.exemplar(0x01), 0x5E));
   check('ammo types corrected to the game data (4.7mm, 12 Gauge, minirockets AP/HE)',
     J.exemplar(0x68).ammoVariety === 3 && J.exemplar(0x6B).ammoVariety === 0 && J.exemplar(0x6F).ammoVariety === 3 &&
     J.exemplar(0x70).ammoVariety === 9 && J.exemplar(0x70).name === 'Minirockets, HE' && J.exemplar(0x71).ammoVariety === 10);
@@ -266,6 +268,9 @@ function testRepairReload(f, bytes) {
     [J.CAT.AMMO, J.CAT.WEAPON, J.CAT.MONEY].indexOf(J.exemplar(it.getInt('Item ID')).category) === -1);
   merc.items[worn].setInt('Item 1 %', 37);
   const raised = team.reduce((n, m) => n + m.repairAll(), 0);
+  const firstGun = merc.items.findIndex((it) => { const ex = J.exemplar(it.getInt('Item ID'));
+    return ex && ex.category === J.CAT.WEAPON && ex.defaultAmmoId && it.data[2] === 1; });
+  if (firstGun !== -1) { merc.items[firstGun].setInt('Ammo ID', 0x71); merc.items[firstGun].setInt('Ammo Variety', 10); }
   const reloaded = team.reduce((n, m) => n + m.reloadAll(), 0);
   let back = null;
   try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': repair/reload save reloads', false, e.message); return; }
@@ -278,10 +283,13 @@ function testRepairReload(f, bytes) {
     const ex = J.exemplar(it.getInt('Item ID'));
     if (!ex || ex.category !== J.CAT.WEAPON || !ex.defaultAmmoId || it.data[2] !== 1) { return; }
     ++guns;
-    const fits = ex.compatibleAmmoIds.indexOf(it.getInt('Ammo ID')) !== -1;
+    const fits = J.gunAcceptsAmmo(ex, it.getInt('Ammo ID'));
     if (!(fits && it.data[6] === 255 && it.getInt('Weight') === J.objectWeight(it))) { ok = false; }
     notes.push(m.get('Nickname') + ' ' + ex.name + ' ' + it.get('Ammo ID') + ' ' + it.data[6]);
   }));
+  if (firstGun !== -1) {
+    check(f + ': Reload all keeps HEAP minirockets in a gun', items[firstGun].getInt('Ammo ID') === 0x71 && items[firstGun].data[6] === 255);
+  }
   check(f + ': Reload all put 255 rounds in every gun (' + guns + ' guns, ' + reloaded + ' changed)',
     ok && guns > 0 && reloaded === guns, notes);
 }
@@ -291,10 +299,11 @@ function testQuickItems(f, bytes) {
   const game = J.SaveGame.load(bytes, f);
   const merc = game.mercs.find((m) => m.isOnPlayerTeam() && m.items);
   const free = merc.items.map((it, i) => (it.getInt('Item ID') === 0 && i > 6 ? i : -1)).filter((i) => i !== -1);
-  if (free.length < 3) { check(f + ': three free pockets for the quick items', false); return; }
+  if (free.length < 4) { check(f + ': four free pockets for the quick items', false); return; }
   J.QUICK_ITEMS.law.make(merc.items[free[0]]);
   J.QUICK_ITEMS.rifle.make(merc.items[free[1]]);
   J.QUICK_ITEMS.aug.make(merc.items[free[2]]);
+  J.QUICK_ITEMS.dragunov.make(merc.items[free[3]]);
   let back = null;
   try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': quick items save reloads', false, e.message); return; }
   const items = back.mercs.find((m) => m.slot === merc.slot).items;
@@ -309,6 +318,10 @@ function testQuickItems(f, bytes) {
   // Laser Scope and Sniper Scope at 100%, imprint 200, weight 36 + 5 + 4 + 9 = 54
   check(f + ': Steyr AUG bytes', hex(items[free[2]]) === '140001006401ff005f00640000000000' +
     'f100d00000000000' + '64640000' + '000000c8' + '3600', hex(items[free[2]]));
+  // usItem 0x12 (Dragunov), status 100, AP (2), 255 rounds, 7.62mm WP 10 0x60 (default), ammo 100%,
+  // Laser Scope and Sniper Scope at 100%, imprint 200, weight 43 + 3 + 4 + 9 = 59
+  check(f + ': Dragunov bytes', hex(items[free[3]]) === '120001006402ff006000640000000000' +
+    'f100d00000000000' + '64640000' + '000000c8' + '3b00', hex(items[free[3]]));
   check(f + ': quick items readable', items[free[0]].get('Item ID') === 'LAW' && items[free[0]].getInt('Quantity') === 6 &&
     items[free[1]].get('Ammo ID') === 'Minirockets, HEAP' && items[free[1]].getInt('Ammo Quantity') === 255 &&
     items[free[2]].get('Item ID') === 'Steyr AUG' && items[free[2]].get('Ammo ID') === '5.56mm Magazine, HP' &&

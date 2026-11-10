@@ -468,7 +468,7 @@
     var currentAmmo = item ? item.getInt('Ammo ID') : 0;
     this.ammoIdView.setOptions(J.AMMO_LIST.filter(function (a) {
       if (category !== CAT.WEAPON || a.id === 0) { return true; }
-      return a.id === currentAmmo || ex.compatibleAmmoIds.indexOf(a.id) !== -1;
+      return a.id === currentAmmo || J.gunAcceptsAmmo(ex, a.id);
     }));
 
     var attachmentCats = category === CAT.WEAPON ? WEAPON_ATTACHMENT_CATS :
@@ -581,7 +581,7 @@
    */
   ItemDetailPanel.prototype.loadDefaultAmmo = function (weapon) {
     if (!weapon.defaultAmmoId) { return; }
-    if (weapon.compatibleAmmoIds.indexOf(this.item.getInt('Ammo ID')) !== -1) { return; }
+    if (J.gunAcceptsAmmo(weapon, this.item.getInt('Ammo ID'))) { return; }
     this.ammoIdView.setValue(weapon.defaultAmmoId);
   };
 
@@ -634,8 +634,8 @@
       row.forEach(function (slot, c) { SLOT_NAMES[slot] = 'Backpack ' + (r + 1) + '-' + (c + 1); });
     });
 
-    // Custom buttons: a column of their own, right of the slots. Rows 1-4 act
-    // on the selected merc, rows 6-8 on the whole team.
+    // Custom buttons: a column of their own, right of the slots. Rows 1-5 act
+    // on the selected merc, rows 7-9 on the whole team.
     this.$fullDress = $('<button type="button" class="btn action full-dress">')
       .text('Full Dress')
       .attr('title', 'Put on Coated Spectra Helmet, Coated Spectra Vest with 4 Ceramic Plates, ' +
@@ -656,7 +656,12 @@
         'the first empty slot, searching from the last one')
       .css({ gridRow: '2', gridColumn: '4' })
       .on('click', function () { self.addQuickItem('aug'); });
-    $slots.append(this.$fullDress, this.$addLaw, this.$addRifle, this.$addAug);
+    this.$addDragunov = $('<button type="button" class="btn action add-dragunov">').text('Add dragunov')
+      .attr('title', 'Create a Dragunov with 255 rounds of 7.62mm WP (its default magazine), Laser Scope and Sniper Scope: ' +
+        'the first empty slot, searching from the last one')
+      .css({ gridRow: '5', gridColumn: '4' })
+      .on('click', function () { self.addQuickItem('dragunov'); });
+    $slots.append(this.$fullDress, this.$addLaw, this.$addRifle, this.$addAug, this.$addDragunov);
 
     // Whole-team actions (every merc marked *), lower in the same column.
     this.onTeamAction = null;
@@ -665,7 +670,7 @@
       ['reload', 'Reload all', 'Load every gun of the whole team (*) with 255 rounds'],
       ['dress', 'Full Dress all', 'Full Dress for every merc of the whole team (*)']].forEach(function (b, c) {
       var $b = $('<button type="button" class="btn action team">').text(b[1]).attr({ title: b[2], 'data-team': b[0] })
-        .css({ gridRow: String(6 + c), gridColumn: '4' })
+        .css({ gridRow: String(7 + c), gridColumn: '4' })
         .on('click', function () { if (self.onTeamAction) { self.onTeamAction(b[0]); } });
       self.$teamButtons = self.$teamButtons.add($b);
     });
@@ -692,7 +697,7 @@
     this.mode = mode;
     this.refreshButtons();
     this.$note.toggleClass('shown', mode === 'unsupported');
-    [this.$fullDress, this.$addLaw, this.$addRifle, this.$addAug].forEach(function ($b) {
+    [this.$fullDress, this.$addLaw, this.$addRifle, this.$addAug, this.$addDragunov].forEach(function ($b) {
       $b.toggle(mode !== 'unsupported').prop('disabled', mode !== 'edit' || !this.merc);
     }, this);
     this.selectSlot(SLOT_ROWS[0][0]);

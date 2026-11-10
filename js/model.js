@@ -444,12 +444,15 @@
   };
 
   var NO_PROFILE = 200;
+  var DRAGUNOV = 0x12;
   var STEYR_AUG = 0x14;
   var LAW = 0x33;
   var AUTO_ROCKET_RIFLE = 0x41;
   var CLIP556_HP = 0x5F;
+  var CLIP762W_10 = 0x60;
   var MINIROCKETS_HEAP = 0x71;
   var AMMO_HP = 1;
+  var AMMO_AP = 2;
   var AMMO_HEAT = 10;
   var SNIPER_SCOPE = 0xD0;
   var LASER_SCOPE = 0xF1;
@@ -509,11 +512,30 @@
     id: STEYR_AUG, ammo: CLIP556_HP, ammoType: AMMO_HP, rounds: 255,
     attachments: [LASER_SCOPE, SNIPER_SCOPE]
   };
+  /** Dragunov, 255 rounds of 7.62mm WP (its default magazine, AP), Laser Scope and Sniper Scope. */
+  J.DRAGUNOV = {
+    id: DRAGUNOV, ammo: CLIP762W_10, ammoType: AMMO_AP, rounds: 255,
+    attachments: [LASER_SCOPE, SNIPER_SCOPE]
+  };
 
   J.QUICK_ITEMS = {
     law: { id: LAW, label: 'LAW ×6', make: function (item) { J.makeLawStack(item, 6); } },
     rifle: { id: AUTO_ROCKET_RIFLE, label: 'Auto Rocket Rifle', make: function (item) { J.makeLoadedGun(item, J.ROCKET_RIFLE); } },
-    aug: { id: STEYR_AUG, label: 'Steyr AUG', make: function (item) { J.makeLoadedGun(item, J.STEYR_AUG); } }
+    aug: { id: STEYR_AUG, label: 'Steyr AUG', make: function (item) { J.makeLoadedGun(item, J.STEYR_AUG); } },
+    dragunov: { id: DRAGUNOV, label: 'Dragunov', make: function (item) { J.makeLoadedGun(item, J.DRAGUNOV); } }
+  };
+
+  /**
+   * Experimental: ammo every gun may load besides the magazines of its
+   * calibre. In the game the effect of a shot follows the gun's ammo type
+   * (ubGunAmmoType), so HEAT rounds pierce armour like AP, do HE damage,
+   * can hurt tanks and show an explosion on impact, whatever the gun.
+   */
+  J.EXTRA_AMMO_IDS = [MINIROCKETS_HEAP];
+
+  /** Whether a gun may hold this magazine: its calibre, or the extra ammo. */
+  J.gunAcceptsAmmo = function (gun, ammoId) {
+    return gun.compatibleAmmoIds.indexOf(ammoId) !== -1 || J.EXTRA_AMMO_IDS.indexOf(ammoId) !== -1;
   };
 
   /** Puts on the Full Dress set: new items, 100%, plates attached at 100%. */
@@ -587,7 +609,7 @@
       var ex = J.exemplar(item.getInt('Item ID'));
       if (!ex || ex.category !== CAT.WEAPON || !ex.defaultAmmoId || item.data[2] !== 1) { return; }
       var changed = false;
-      if (ex.compatibleAmmoIds.indexOf(item.getInt('Ammo ID')) === -1) {
+      if (!J.gunAcceptsAmmo(ex, item.getInt('Ammo ID'))) {
         var ammo = ex.defaultAmmoId;
         item.setInt('Ammo ID', ammo);
         item.setInt('Ammo Variety', J.exemplar(ammo).ammoVariety);

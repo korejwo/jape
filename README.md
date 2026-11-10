@@ -105,8 +105,9 @@ Supported saves:
   the value, up to 100, and the increase in brackets by the same number of points.
 - JA2 1.0x saves: the custom buttons sit in their own column right of the
   inventory slots (the window is therefore wider than the original, about 1040 px):
-  Full Dress, Add AUG, Add LAW and Add rifle for the selected merc, then
-  Repair all, Reload all and Full Dress all for the whole team.
+  Full Dress, Add AUG, Add LAW, Add rifle and Add dragunov for the selected
+  merc, then (after a gap) Repair all, Reload all and Full Dress all for the
+  whole team.
 - **Full Dress** puts on Coated
   Spectra Helmet, Coated Spectra Vest with 4 Ceramic Plates, Coated Spectra
   Leggings, Night Vision Goggles and Extended Ear, all at 100%, replacing what
@@ -115,8 +116,9 @@ Supported saves:
   removes a plate when it is destroyed, so the next one takes over.
 - JA2 1.0x saves: **Add LAW** creates 6 LAWs stacked in one slot, **Add rifle**
   an Auto Rocket Rifle loaded with 255 HEAP minirockets, **Add AUG** a Steyr AUG
-  loaded with 255 rounds of 5.56mm HP; both guns get Laser Scope and Sniper
-  Scope attached at 100%, no silencer (the game applies attachment bonuses by
+  loaded with 255 rounds of 5.56mm HP, **Add dragunov** a Dragunov loaded with
+  255 rounds of its default magazine, 7.62mm WP Magazine (AP); all three guns
+  get Laser Scope and Sniper Scope attached at 100%, no silencer (the game applies attachment bonuses by
   looking the attachment up on the gun). They go into the first
   empty slot searching from the last one (small pockets first), skipping slots
   the slot rules forbid (armour and head gear slots, a hand blocked by a
@@ -131,8 +133,14 @@ Supported saves:
   (magazines are left alone: their "status" is the rounds); **Reload all** loads
   every single magazine-fed gun with 255 rounds (the most the game's
   ubGunShotsLeft holds; a gun holding a magazine of another calibre gets its
-  default magazine) and updates its weight; **Full Dress all**
+  default magazine, HEAP minirockets are kept) and updates its weight; **Full Dress all**
   is Full Dress for everyone.
+- Experimental, JA2 1.0x saves: every gun's Ammo list also offers
+  **Minirockets, HEAP**; choosing it sets the ammo type to 10 (HEAT). The game
+  decides what a shot does from the gun's ammo type, not from its calibre, so
+  such a gun pierces armour like AP, does HE damage, can hurt tanks and shows an
+  explosion on impact. Reloading in the game still needs magazines of the gun's
+  own calibre; once the loaded rounds are gone the effect is gone too.
 - Money Value is the full 4-byte amount (`uiMoneyAmount`); the original edited
   only the low 2 bytes, so amounts above 65,535 were cut. The game itself keeps
   at most 20,000 per slot (10,000 in a small pocket).
