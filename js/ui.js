@@ -669,7 +669,8 @@
     [['repair', 'Repair all', 'Raise every item and attachment of the whole team (*) to 100%'],
       ['reload', 'Reload all', 'Renew the magazine of every gun of the whole team (*): 255 rounds, ' +
         'ammo type 8 (knife: not stopped by vests and leggings)'],
-      ['dress', 'Full Dress all', 'Full Dress for every merc of the whole team (*)']].forEach(function (b, c) {
+      ['dress', 'Full Dress all', 'Full Dress, Medical Kit and Camouflage Kit at 100% for every merc of the whole team (*); ' +
+        'refill existing kits, otherwise use a free slot that fits']].forEach(function (b, c) {
       var $b = $('<button type="button" class="btn action team">').text(b[1]).attr({ title: b[2], 'data-team': b[0] })
         .css({ gridRow: String(7 + c), gridColumn: '4' })
         .on('click', function () { if (self.onTeamAction) { self.onTeamAction(b[0]); } });
@@ -1320,6 +1321,7 @@
     var team = this.team();
     if (!team.length) { return; }
     var count = 0;
+    var missingKits = [];
     team.forEach(function (m) {
       if (kind === 'repair') {
         count += m.repairAll();
@@ -1327,6 +1329,11 @@
         count += m.reloadAll();
       } else {
         m.fullDress();
+        var missing = [];
+        [0xCA, 0xCD].forEach(function (id) {
+          if (!m.supplyKit(id)) { missing.push(J.exemplar(id).name); }
+        });
+        if (missing.length) { missingKits.push(m.get('Nickname') + ': ' + missing.join(', ')); }
         ++count;
       }
     });
@@ -1338,6 +1345,9 @@
     var msg = kind === 'repair' ? 'Repair all: ' + count + ' status value(s) raised to 100%' :
       kind === 'reload' ? 'Reload all: ' + count + ' gun(s) reloaded' : 'Full Dress all';
     $('#status-msg').text(msg + ' (' + names + ').');
+    if (missingKits.length) {
+      messageDialog('Full Dress applied, but no free slot for:\n' + missingKits.join('\n'));
+    }
   };
 
   // ---- modification state -------------------------------------------------------------

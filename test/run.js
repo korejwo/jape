@@ -229,6 +229,8 @@ for (const f of files) {
       }
     }
     testFullDress(f, new Uint8Array(orig));
+    testSupplyKits(f, new Uint8Array(orig), 0xCA, J.Mercenary.BACKPACK_4_3, 18);
+    testSupplyKits(f, new Uint8Array(orig), 0xCD, J.Mercenary.BACKPACK_4_2, 1);
     testQuickItems(f, new Uint8Array(orig));
     testRepairReload(f, new Uint8Array(orig));
   } else if (edited.version === J.SaveGame113.VERSION) {
@@ -240,6 +242,7 @@ for (const f of files) {
 function testFullDress(f, bytes) {
   const game = J.SaveGame.load(bytes, f);
   const merc = game.mercs.find((m) => m.isOnPlayerTeam() && m.items);
+  const otherItems = merc.items.slice(5).map((it) => Array.from(it.data).join());
   merc.fullDress();
   let back = null;
   try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': Full Dress save reloads', false, e.message); return; }
@@ -257,6 +260,52 @@ function testFullDress(f, bytes) {
     'Coated Spectra Leggings|1|100|35|' + none,
     'Night Vision Goggles|1|100|9|' + none,
     'Extended Ear|1|100|9|' + none]), got);
+  check(f + ': single Full Dress leaves hands and pockets unchanged',
+    items.slice(5).every((it, i) => Array.from(it.data).join() === otherItems[i]));
+}
+
+/** JA2 1.0x: team kits, without duplicates or overwritten items. */
+function testSupplyKits(f, bytes, id, slot, weight) {
+  const game = J.SaveGame.load(bytes, f);
+  const team = game.mercs.filter((m) => m.isOnPlayerTeam() && m.items);
+  const name = J.exemplar(id).name;
+  team.forEach((m) => {
+    m.items.forEach((it) => { if (it.getInt('Item ID') === id) it.data.fill(0); });
+    m.items[slot].data.fill(0);
+    m.fullDress();
+  });
+  const before = team.map((m) => m.items.map((it) => Array.from(it.data).join()));
+  const supplied = team.map((m) => m.supplyKit(id));
+  let back;
+  try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': ' + name + ' save reloads', false, e.message); return; }
+  check(f + ': ' + name + ' for every team member survives save + reload', supplied.every(Boolean) && team.every((m) => {
+    const it = back.mercs.find((b) => b.slot === m.slot).items[slot];
+    return it.getInt('Item ID') === id && it.getInt('Quantity') === 1 &&
+      it.getInt('Item 1 %') === 100 && it.getInt('Weight') === weight;
+  }));
+  check(f + ': supplying ' + name + ' preserves all other items',
+    team.every((m, t) => m.items.every((it, i) => i === slot || Array.from(it.data).join() === before[t][i])));
+
+  const merc = team[0];
+  const kit = merc.items[slot];
+  kit.setInt('Quantity', 2);
+  kit.setInt('Item 1 %', 37);
+  kit.setInt('Item 2 %', 52);
+  const expected = merc.items.map((it) => new Uint8Array(it.data));
+  expected[slot][4] = expected[slot][5] = 100;
+  const refilled = merc.supplyKit(id) && merc.supplyKit(id);
+  check(f + ': existing ' + name + ' refilled without duplicates or other changes', refilled &&
+    merc.items.every((it, i) => firstDiff(it.data, expected[i]) === -1));
+
+  merc.items.forEach((it) => it.data.fill(0));
+  J.QUICK_ITEMS.aug.make(merc.items[J.Mercenary.RIGHT_HAND]);
+  for (let s = J.Mercenary.BACKPACK_1_3; s <= slot; ++s) J.makeLawStack(merc.items[s], 1);
+  const blocked = merc.items.map((it) => new Uint8Array(it.data));
+  check(f + ': no free pocket: ' + name + ' respects pocket size, restricted slots and a blocked hand',
+    merc.supplyKit(id) === false && merc.items.every((it, i) => firstDiff(it.data, blocked[i]) === -1));
+  J.makeLoadedGun(merc.items[J.Mercenary.RIGHT_HAND], { id: 1, ammo: 0x47, ammoType: 0, rounds: 15, attachments: [] });
+  check(f + ': ' + name + ' uses an unblocked left hand when suitable pockets are full',
+    merc.supplyKit(id) && merc.items[J.Mercenary.LEFT_HAND].getInt('Item ID') === id);
 }
 
 /** JA2 1.0x: Repair all and Reload all on the whole team, save, reload. */

@@ -136,7 +136,12 @@ Supported saves:
   jammed gun, so this also clears a jam) and **Ammo Variety 8** (knife). The
   loaded magazine is kept; a gun with no magazine or one of another calibre
   gets its default magazine. The weight is updated. **Full Dress all** is Full
-  Dress for everyone.
+  Dress for everyone, plus a Medical Kit and a Camouflage Kit at 100%: existing
+  kits are refilled without adding duplicates; otherwise a new kit is put in
+  the first empty pocket that fits, searching from the last one, or an
+  unblocked left hand. Medical Kits require big pockets; Camouflage Kits also
+  fit small pockets. If no suitable slot is free, a message lists the mercs
+  and the kits they could not receive; other inventory items are not overwritten.
 - Ammo Variety (`ubGunAmmoType`) is what decides the effect of a shot, not the
   magazine in the Ammo field. Type 8 (knife) is not stopped by vests and
   leggings (helmets and Ceramic Plates still count), and a hit to the head or
@@ -167,6 +172,17 @@ and reloads with valid checksums. It also replaces a gun (factory attachments,
 default magazine, same-calibre magazine kept) and an item with an attachment,
 then checks that the file reloads, the items survive, and every other soldier
 and the rest of the file stay byte-identical.
+
+UI tests drive headless Chrome (expected at
+`C:/Program Files/Google/Chrome/Application/chrome.exe`) over the DevTools
+protocol and write screenshots to `out-dir`:
+
+```
+node test/ui_test.js    . ../saves/SaveGame01.sav <out-dir>
+node test/ui_test113.js . ../saves/QuickSave.sav  <out-dir>
+```
+
+They assume the content of the test saves (team mercs, items in given slots).
 
 Verified on two JA2 1.0x saves (version 99, Polish release) and one JA2 1.13 v5
 save (version 185). The 1.13 version 103 code path is a direct port of JAPE 0.41

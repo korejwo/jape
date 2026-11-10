@@ -542,6 +542,34 @@
     });
   };
 
+  /** Refills existing kits of the given type or creates one; false if no allowed slot is free. */
+  Mercenary.prototype.supplyKit = function (id) {
+    var found = false;
+    this.items.forEach(function (item) {
+      if (item.getInt('Item ID') !== id) { return; }
+      found = true;
+      var count = Math.min(8, Math.max(1, item.data[2]));
+      for (var k = 0; k < count; ++k) { item.data[4 + k] = 100; }
+    });
+    if (found) { return true; }
+
+    var right = this.items[Mercenary.RIGHT_HAND].exemplar();
+    // Items with ubPerPocket = 0 cannot use small pockets.
+    var lastSlot = perPocket(id) > 0 ? this.items.length - 1 : Mercenary.BACKPACK_4_3;
+    for (var s = lastSlot; s >= Mercenary.LEFT_HAND; --s) {
+      var item = this.items[s];
+      if (item.getInt('Item ID') !== 0) { continue; }
+      if (s === Mercenary.LEFT_HAND && right && right.twoHanded) { continue; }
+      item.data.fill(0);
+      item.setInt('Item ID', id);
+      item.setInt('Quantity', 1);
+      item.setInt('Item 1 %', 100);
+      item.setInt('Weight', J.objectWeight(item));
+      return true;
+    }
+    return false;
+  };
+
   // ---- Repair / reload -------------------------------------------------------------
 
   function status(b) { return (b << 24) >> 24; }   // INT8
