@@ -418,16 +418,18 @@
    * item's weight plus its attachments'.
    */
   J.ITEM_WEIGHTS = {
-    0x33: 21, 0x41: 40, 0x71: 10, 0xA9: 29, 0xAF: 35, 0xB6: 13, 0xB7: 12,
+    0x14: 36, 0x33: 21, 0x41: 40, 0x5F: 5, 0x71: 10, 0xA9: 29, 0xAF: 35, 0xB6: 13, 0xB7: 12,
     0xCF: 5, 0xD0: 9, 0xD2: 9, 0xD3: 9, 0xF1: 4
   };
 
   var NO_PROFILE = 200;
+  var STEYR_AUG = 0x14;
   var LAW = 0x33;
   var AUTO_ROCKET_RIFLE = 0x41;
+  var CLIP556_HP = 0x5F;
   var MINIROCKETS_HEAP = 0x71;
+  var AMMO_HP = 1;
   var AMMO_HEAT = 10;
-  var SILENCER = 0xCF;
   var SNIPER_SCOPE = 0xD0;
   var LASER_SCOPE = 0xF1;
 
@@ -451,25 +453,25 @@
   };
 
   /**
-   * An Auto Rocket Rifle (CreateGun: status 100, not fingerprint-locked,
-   * so it locks to the first merc who uses it) loaded with HEAP minirockets,
-   * with Silencer, Laser Scope and Sniper Scope attached at 100%. The game
-   * applies attachment bonuses by looking the attachment up on the gun.
-   * Weight: rifle + attachments + magazine, as the game computes it.
+   * A loaded gun with attachments (CreateGun: status 100, not
+   * fingerprint-locked, so a rocket rifle locks to the first merc who uses
+   * it), attachments at 100%. The game applies attachment bonuses by looking
+   * the attachment up on the gun. Weight: gun + attachments + magazine, as
+   * the game computes it.
+   * @param gun {id, ammo, ammoType, rounds, attachments}
    */
-  J.ROCKET_RIFLE_ATTACHMENTS = [SILENCER, LASER_SCOPE, SNIPER_SCOPE];
-  J.makeRocketRifle = function (item, rounds) {
+  J.makeLoadedGun = function (item, gun) {
     item.data.fill(0);
-    item.setInt('Item ID', AUTO_ROCKET_RIFLE);
+    item.setInt('Item ID', gun.id);
     item.setInt('Quantity', 1);
     item.setInt('Item 1 %', 100);              // bGunStatus
-    item.setInt('Ammo Variety', AMMO_HEAT);    // ubGunAmmoType
-    item.setInt('Ammo Quantity', rounds);      // ubGunShotsLeft (UINT8)
-    item.setInt('Ammo ID', MINIROCKETS_HEAP);  // usGunAmmoItem
+    item.setInt('Ammo Variety', gun.ammoType); // ubGunAmmoType
+    item.setInt('Ammo Quantity', gun.rounds);  // ubGunShotsLeft (UINT8)
+    item.setInt('Ammo ID', gun.ammo);          // usGunAmmoItem
     item.setInt('Ammo %', 100);                // bGunAmmoStatus
     item.setInt('Unknown 4', NO_PROFILE);     // ubImprintID
-    var weight = J.ITEM_WEIGHTS[AUTO_ROCKET_RIFLE] + J.ITEM_WEIGHTS[MINIROCKETS_HEAP];
-    J.ROCKET_RIFLE_ATTACHMENTS.forEach(function (id, k) {
+    var weight = J.ITEM_WEIGHTS[gun.id] + J.ITEM_WEIGHTS[gun.ammo];
+    gun.attachments.forEach(function (id, k) {
       item.setInt('Attachment ' + (k + 1) + ' ID', id);
       item.setInt('Attachment ' + (k + 1) + ' %', 100);
       weight += J.ITEM_WEIGHTS[id];
@@ -477,9 +479,21 @@
     item.setInt('Weight', weight);
   };
 
+  /** Auto Rocket Rifle, 255 HEAP minirockets, Laser Scope and Sniper Scope. */
+  J.ROCKET_RIFLE = {
+    id: AUTO_ROCKET_RIFLE, ammo: MINIROCKETS_HEAP, ammoType: AMMO_HEAT, rounds: 255,
+    attachments: [LASER_SCOPE, SNIPER_SCOPE]
+  };
+  /** Steyr AUG, 255 rounds of 5.56mm HP, Laser Scope and Sniper Scope. */
+  J.STEYR_AUG = {
+    id: STEYR_AUG, ammo: CLIP556_HP, ammoType: AMMO_HP, rounds: 255,
+    attachments: [LASER_SCOPE, SNIPER_SCOPE]
+  };
+
   J.QUICK_ITEMS = {
     law: { id: LAW, label: 'LAW ×6', make: function (item) { J.makeLawStack(item, 6); } },
-    rifle: { id: AUTO_ROCKET_RIFLE, label: 'Auto Rocket Rifle', make: function (item) { J.makeRocketRifle(item, 255); } }
+    rifle: { id: AUTO_ROCKET_RIFLE, label: 'Auto Rocket Rifle', make: function (item) { J.makeLoadedGun(item, J.ROCKET_RIFLE); } },
+    aug: { id: STEYR_AUG, label: 'Steyr AUG', make: function (item) { J.makeLoadedGun(item, J.STEYR_AUG); } }
   };
 
   /** Puts on the Full Dress set: new items, 100%, plates attached at 100%. */

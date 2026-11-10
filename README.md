@@ -110,9 +110,10 @@ Supported saves:
   (item + attachments, JA2 1.12 weights). The game uses one plate at a time and
   removes a plate when it is destroyed, so the next one takes over.
 - JA2 1.0x saves: **Add LAW** creates 6 LAWs stacked in one slot, **Add rifle**
-  an Auto Rocket Rifle loaded with 255 HEAP minirockets, with Silencer, Laser
-  Scope and Sniper Scope attached at 100% (the game applies attachment bonuses
-  by looking the attachment up on the gun). Both go into the first
+  an Auto Rocket Rifle loaded with 255 HEAP minirockets, **Add AUG** a Steyr AUG
+  loaded with 255 rounds of 5.56mm HP; both guns get Laser Scope and Sniper
+  Scope attached at 100%, no silencer (the game applies attachment bonuses by
+  looking the attachment up on the gun). They go into the first
   empty slot searching from the last one (small pockets first), skipping slots
   the slot rules forbid (armour and head gear slots, a hand blocked by a
   two-handed weapon). They are built the way the game creates items

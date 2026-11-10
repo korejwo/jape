@@ -647,10 +647,16 @@
       .css({ gridRow: '3', gridColumn: '2' })
       .on('click', function () { self.addQuickItem('law'); });
     this.$addRifle = $('<button type="button" class="btn action add-rifle">').text('Add rifle')
-      .attr('title', 'Create an Auto Rocket Rifle with 255 HEAP minirockets: the first empty slot, searching from the last one')
+      .attr('title', 'Create an Auto Rocket Rifle with 255 HEAP minirockets, Laser Scope and Sniper Scope: ' +
+        'the first empty slot, searching from the last one')
       .css({ gridRow: '4', gridColumn: '2' })
       .on('click', function () { self.addQuickItem('rifle'); });
-    $slots.append(this.$fullDress, this.$addLaw, this.$addRifle);
+    this.$addAug = $('<button type="button" class="btn action add-aug">').text('Add AUG')
+      .attr('title', 'Create a Steyr AUG with 255 rounds of 5.56mm HP, Laser Scope and Sniper Scope: ' +
+        'the first empty slot, searching from the last one')
+      .css({ gridRow: '2', gridColumn: '2' })
+      .on('click', function () { self.addQuickItem('aug'); });
+    $slots.append(this.$fullDress, this.$addLaw, this.$addRifle, this.$addAug);
 
     this.$note = $('<p class="item-note">').text('Item editing is not supported for JA2 1.13 save games.');
     var $detail = $('<div class="detail">');
@@ -673,7 +679,7 @@
     this.mode = mode;
     this.refreshButtons();
     this.$note.toggleClass('shown', mode === 'unsupported');
-    [this.$fullDress, this.$addLaw, this.$addRifle].forEach(function ($b) {
+    [this.$fullDress, this.$addLaw, this.$addRifle, this.$addAug].forEach(function ($b) {
       $b.toggle(mode !== 'unsupported').prop('disabled', mode !== 'edit' || !this.merc);
     }, this);
     this.selectSlot(SLOT_ROWS[0][0]);

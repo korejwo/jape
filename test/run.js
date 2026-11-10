@@ -243,27 +243,33 @@ function testFullDress(f, bytes) {
     'Extended Ear|1|100|9|' + none]), got);
 }
 
-/** JA2 1.0x: LAW x6 and Auto Rocket Rifle with 255 HEAP rounds, save, reload. */
+/** JA2 1.0x: LAW x6, Auto Rocket Rifle and Steyr AUG from the quick buttons, save, reload. */
 function testQuickItems(f, bytes) {
   const game = J.SaveGame.load(bytes, f);
   const merc = game.mercs.find((m) => m.isOnPlayerTeam() && m.items);
   const free = merc.items.map((it, i) => (it.getInt('Item ID') === 0 && i > 6 ? i : -1)).filter((i) => i !== -1);
-  if (free.length < 2) { check(f + ': two free pockets for the quick items', false); return; }
+  if (free.length < 3) { check(f + ': three free pockets for the quick items', false); return; }
   J.QUICK_ITEMS.law.make(merc.items[free[0]]);
   J.QUICK_ITEMS.rifle.make(merc.items[free[1]]);
+  J.QUICK_ITEMS.aug.make(merc.items[free[2]]);
   let back = null;
   try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': quick items save reloads', false, e.message); return; }
   const items = back.mercs.find((m) => m.slot === merc.slot).items;
   const hex = (it) => Array.from(it.data.slice(0, 0x22), (b) => b.toString(16).padStart(2, '0')).join('');
   // usItem 0x33, 6 objects, bStatus[0..5] = 100, bGunAmmoStatus 100, ubImprintID 200, ubWeight 21
   check(f + ': LAW x6 bytes', hex(items[free[0]]) === '33000600646464646464640000000000' + '0000000000000000' + '00000000' + '000000c8' + '1500', hex(items[free[0]]));
-  // usItem 0x41, 1 object, status 100, HEAT (10), 255 rounds, minirockets HEAP 0x71, ammo 100%,
-  // attachments Silencer 0xCF, Laser Scope 0xF1, Sniper Scope 0xD0 at 100%, imprint 200,
-  // weight 40 + 10 + 5 + 4 + 9 = 68
+  // usItem 0x41, status 100, HEAT (10), 255 rounds, minirockets HEAP 0x71, ammo 100%,
+  // Laser Scope 0xF1 and Sniper Scope 0xD0 at 100%, imprint 200, weight 40 + 10 + 4 + 9 = 63
   check(f + ': Auto Rocket Rifle bytes', hex(items[free[1]]) === '41000100640aff007100640000000000' +
-    'cf00f100d0000000' + '64646400' + '000000c8' + '4400', hex(items[free[1]]));
+    'f100d00000000000' + '64640000' + '000000c8' + '3f00', hex(items[free[1]]));
+  // usItem 0x14 (Steyr AUG), status 100, HP (1), 255 rounds, 5.56mm HP 0x5F, ammo 100%,
+  // Laser Scope and Sniper Scope at 100%, imprint 200, weight 36 + 5 + 4 + 9 = 54
+  check(f + ': Steyr AUG bytes', hex(items[free[2]]) === '140001006401ff005f00640000000000' +
+    'f100d00000000000' + '64640000' + '000000c8' + '3600', hex(items[free[2]]));
   check(f + ': quick items readable', items[free[0]].get('Item ID') === 'LAW' && items[free[0]].getInt('Quantity') === 6 &&
-    items[free[1]].get('Ammo ID') === 'Minirockets, HEAP' && items[free[1]].getInt('Ammo Quantity') === 255);
+    items[free[1]].get('Ammo ID') === 'Minirockets, HEAP' && items[free[1]].getInt('Ammo Quantity') === 255 &&
+    items[free[2]].get('Item ID') === 'Steyr AUG' && items[free[2]].get('Ammo ID') === '5.56mm Magazine, HP' &&
+    items[free[2]].get('Attachment 2 ID') === 'Sniper Scope' && items[free[2]].getInt('Attachment 3 ID') === 0);
 }
 
 /** JA2 1.13 v5: edit a team member (soldier + profile) and a profile, save, reload. */
