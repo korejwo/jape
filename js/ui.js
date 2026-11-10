@@ -468,7 +468,7 @@
     var currentAmmo = item ? item.getInt('Ammo ID') : 0;
     this.ammoIdView.setOptions(J.AMMO_LIST.filter(function (a) {
       if (category !== CAT.WEAPON || a.id === 0) { return true; }
-      return a.id === currentAmmo || J.gunAcceptsAmmo(ex, a.id);
+      return a.id === currentAmmo || ex.compatibleAmmoIds.indexOf(a.id) !== -1;
     }));
 
     var attachmentCats = category === CAT.WEAPON ? WEAPON_ATTACHMENT_CATS :
@@ -581,7 +581,7 @@
    */
   ItemDetailPanel.prototype.loadDefaultAmmo = function (weapon) {
     if (!weapon.defaultAmmoId) { return; }
-    if (J.gunAcceptsAmmo(weapon, this.item.getInt('Ammo ID'))) { return; }
+    if (weapon.compatibleAmmoIds.indexOf(this.item.getInt('Ammo ID')) !== -1) { return; }
     this.ammoIdView.setValue(weapon.defaultAmmoId);
   };
 
@@ -667,7 +667,8 @@
     this.onTeamAction = null;
     this.$teamButtons = $();
     [['repair', 'Repair all', 'Raise every item and attachment of the whole team (*) to 100%'],
-      ['reload', 'Reload all', 'Load every gun of the whole team (*) with 255 rounds'],
+      ['reload', 'Reload all', 'Renew the magazine of every gun of the whole team (*): 255 rounds, ' +
+        'ammo type 8 (knife: not stopped by vests and leggings)'],
       ['dress', 'Full Dress all', 'Full Dress for every merc of the whole team (*)']].forEach(function (b, c) {
       var $b = $('<button type="button" class="btn action team">').text(b[1]).attr({ title: b[2], 'data-team': b[0] })
         .css({ gridRow: String(7 + c), gridColumn: '4' })

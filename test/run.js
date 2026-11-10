@@ -147,8 +147,8 @@ function check(name, ok, detail) {
 
   check('item table size', J.ITEMS.length === 302, String(J.ITEMS.length));
   check('Glock 17 ammo list', J.exemplar(1).ammoIds.join(',') === '71,73,75', J.exemplar(1).ammoIds.join(','));
-  check('every gun also takes Minirockets, HEAP (experimental)', J.gunAcceptsAmmo(J.exemplar(0x01), 0x71) &&
-    J.gunAcceptsAmmo(J.exemplar(0x13), 0x71) && J.gunAcceptsAmmo(J.exemplar(0x01), 0x47) && !J.gunAcceptsAmmo(J.exemplar(0x01), 0x5E));
+  check('no extra ammo for guns (HEAP experiment removed)', J.gunAcceptsAmmo === undefined && J.EXTRA_AMMO_IDS === undefined &&
+    J.exemplar(0x01).compatibleAmmoIds.indexOf(0x71) === -1 && J.exemplar(0x41).compatibleAmmoIds.indexOf(0x71) !== -1);
   check('ammo types corrected to the game data (4.7mm, 12 Gauge, minirockets AP/HE)',
     J.exemplar(0x68).ammoVariety === 3 && J.exemplar(0x6B).ammoVariety === 0 && J.exemplar(0x6F).ammoVariety === 3 &&
     J.exemplar(0x70).ammoVariety === 9 && J.exemplar(0x70).name === 'Minirockets, HE' && J.exemplar(0x71).ammoVariety === 10);
@@ -270,7 +270,11 @@ function testRepairReload(f, bytes) {
   const raised = team.reduce((n, m) => n + m.repairAll(), 0);
   const firstGun = merc.items.findIndex((it) => { const ex = J.exemplar(it.getInt('Item ID'));
     return ex && ex.category === J.CAT.WEAPON && ex.defaultAmmoId && it.data[2] === 1; });
-  if (firstGun !== -1) { merc.items[firstGun].setInt('Ammo ID', 0x71); merc.items[firstGun].setInt('Ammo Variety', 10); }
+  // first gun: a magazine of another calibre and a jammed gun (negative ammo status)
+  if (firstGun !== -1) { merc.items[firstGun].setInt('Ammo ID', 0x71); merc.items[firstGun].data[10] = 0xFB; }
+  const isGun = (it) => { const ex = J.exemplar(it.getInt('Item ID'));
+    return ex && ex.category === J.CAT.WEAPON && ex.defaultAmmoId && it.data[2] === 1; };
+  const ammoBefore = team.map((m) => m.items.map((it) => it.getInt('Ammo ID')));
   const reloaded = team.reduce((n, m) => n + m.reloadAll(), 0);
   let back = null;
   try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': repair/reload save reloads', false, e.message); return; }
@@ -279,19 +283,26 @@ function testRepairReload(f, bytes) {
   let ok = true;
   let guns = 0;
   const notes = [];
-  back.mercs.filter((m) => m.isOnPlayerTeam() && m.items).forEach((m) => m.items.forEach((it) => {
-    const ex = J.exemplar(it.getInt('Item ID'));
-    if (!ex || ex.category !== J.CAT.WEAPON || !ex.defaultAmmoId || it.data[2] !== 1) { return; }
+  let kept = 0;
+  back.mercs.filter((m) => m.isOnPlayerTeam() && m.items).forEach((m, t) => m.items.forEach((it, i) => {
+    if (!isGun(it)) { return; }
     ++guns;
-    const fits = J.gunAcceptsAmmo(ex, it.getInt('Ammo ID'));
-    if (!(fits && it.data[6] === 255 && it.getInt('Weight') === J.objectWeight(it))) { ok = false; }
-    notes.push(m.get('Nickname') + ' ' + ex.name + ' ' + it.get('Ammo ID') + ' ' + it.data[6]);
+    const ex = J.exemplar(it.getInt('Item ID'));
+    const fits = ex.compatibleAmmoIds.indexOf(it.getInt('Ammo ID')) !== -1;
+    const was = ammoBefore[t][i];
+    const sameMag = ex.compatibleAmmoIds.indexOf(was) !== -1 ? it.getInt('Ammo ID') === was : it.getInt('Ammo ID') === ex.defaultAmmoId;
+    if (sameMag && it.getInt('Ammo ID') === was) { ++kept; }
+    if (!(fits && sameMag && it.data[6] === 255 && it.data[5] === 8 && it.data[10] === 100 &&
+      it.getInt('Weight') === J.objectWeight(it))) { ok = false; }
+    notes.push(m.get('Nickname') + ' ' + ex.name + ' ' + it.get('Ammo ID') + ' ' + it.data[6] + ' type ' + it.data[5]);
   }));
   if (firstGun !== -1) {
-    check(f + ': Reload all keeps HEAP minirockets in a gun', items[firstGun].getInt('Ammo ID') === 0x71 && items[firstGun].data[6] === 255);
+    const ex = J.exemplar(items[firstGun].getInt('Item ID'));
+    check(f + ': Reload all: wrong calibre -> default magazine, jam cleared',
+      items[firstGun].getInt('Ammo ID') === ex.defaultAmmoId && items[firstGun].data[10] === 100);
   }
-  check(f + ': Reload all put 255 rounds in every gun (' + guns + ' guns, ' + reloaded + ' changed)',
-    ok && guns > 0 && reloaded === guns, notes);
+  check(f + ': Reload all: every gun 255 rounds, 100%, type 8, magazine kept (' + guns + ' guns, ' + kept + ' kept, ' +
+    reloaded + ' changed)', ok && guns > 0 && kept >= 1 && reloaded === guns, notes);
 }
 
 /** JA2 1.0x: LAW x6, Auto Rocket Rifle and Steyr AUG from the quick buttons, save, reload. */

@@ -130,17 +130,19 @@ Supported saves:
   fire LAWs one at a time, not from the stack of 6.
 - JA2 1.0x saves, whole team (every merc marked `*`, whoever is selected):
   **Repair all** raises every item and attachment status below 100% to 100%
-  (magazines are left alone: their "status" is the rounds); **Reload all** loads
-  every single magazine-fed gun with 255 rounds (the most the game's
-  ubGunShotsLeft holds; a gun holding a magazine of another calibre gets its
-  default magazine, HEAP minirockets are kept) and updates its weight; **Full Dress all**
-  is Full Dress for everyone.
-- Experimental, JA2 1.0x saves: every gun's Ammo list also offers
-  **Minirockets, HEAP**; choosing it sets the ammo type to 10 (HEAT). The game
-  decides what a shot does from the gun's ammo type, not from its calibre, so
-  such a gun pierces armour like AP, does HE damage, can hurt tanks and shows an
-  explosion on impact. Reloading in the game still needs magazines of the gun's
-  own calibre; once the loaded rounds are gone the effect is gone too.
+  (magazines are left alone: their "status" is the rounds); **Reload all**
+  renews the magazine of every single magazine-fed gun: 255 rounds (the most
+  the game's ubGunShotsLeft holds), ammo status 100% (a negative status means a
+  jammed gun, so this also clears a jam) and **Ammo Variety 8** (knife). The
+  loaded magazine is kept; a gun with no magazine or one of another calibre
+  gets its default magazine. The weight is updated. **Full Dress all** is Full
+  Dress for everyone.
+- Ammo Variety (`ubGunAmmoType`) is what decides the effect of a shot, not the
+  magazine in the Ammo field. Type 8 (knife) is not stopped by vests and
+  leggings (helmets and Ceramic Plates still count), and a hit to the head or
+  torso of an enemy who has not noticed the shooter may kill outright; it does
+  not hurt tanks (only 10, HEAT, does). Reloading in the game resets the type to
+  that of the new magazine.
 - Money Value is the full 4-byte amount (`uiMoneyAmount`); the original edited
   only the low 2 bytes, so amounts above 65,535 were cut. The game itself keeps
   at most 20,000 per slot (10,000 in a small pocket).

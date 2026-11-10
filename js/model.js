@@ -525,19 +525,6 @@
     dragunov: { id: DRAGUNOV, label: 'Dragunov', make: function (item) { J.makeLoadedGun(item, J.DRAGUNOV); } }
   };
 
-  /**
-   * Experimental: ammo every gun may load besides the magazines of its
-   * calibre. In the game the effect of a shot follows the gun's ammo type
-   * (ubGunAmmoType), so HEAT rounds pierce armour like AP, do HE damage,
-   * can hurt tanks and show an explosion on impact, whatever the gun.
-   */
-  J.EXTRA_AMMO_IDS = [MINIROCKETS_HEAP];
-
-  /** Whether a gun may hold this magazine: its calibre, or the extra ammo. */
-  J.gunAcceptsAmmo = function (gun, ammoId) {
-    return gun.compatibleAmmoIds.indexOf(ammoId) !== -1 || J.EXTRA_AMMO_IDS.indexOf(ammoId) !== -1;
-  };
-
   /** Puts on the Full Dress set: new items, 100%, plates attached at 100%. */
   Mercenary.prototype.fullDress = function () {
     var items = this.items;
@@ -596,34 +583,40 @@
   };
 
   /**
-   * Loads every magazine-fed gun (single, not a stack) with RELOAD_ROUNDS
-   * rounds, the most ubGunShotsLeft (UINT8) holds. A gun without a magazine
-   * of its calibre gets its default magazine. Weight is updated.
-   * @return number of guns reloaded
+   * Renews the magazine of every magazine-fed gun (single, not a stack):
+   * RELOAD_ROUNDS rounds, the most ubGunShotsLeft (UINT8) holds, ammo
+   * status 100 (a negative status is a jammed gun, so this also unjams it)
+   * and ammo type RELOAD_AMMO_TYPE. The loaded magazine is kept; a gun with
+   * no magazine, or one of another calibre, gets its default magazine.
+   * Weight is updated.
+   * @return number of guns changed
    */
   var RELOAD_ROUNDS = 255;
   J.RELOAD_ROUNDS = RELOAD_ROUNDS;
+  /**
+   * AMMO_KNIFE. The game takes the effect of a shot from the gun's ammo type
+   * (ubGunAmmoType), not from its magazine: knife rounds are not stopped by
+   * vests and leggings (helmets and Ceramic Plates still count) and a hit to
+   * the head or torso of an enemy who has not noticed the shooter may kill
+   * outright. They do not hurt tanks. Reloading in the game resets the type
+   * to that of the new magazine.
+   */
+  var RELOAD_AMMO_TYPE = 8;
+  J.RELOAD_AMMO_TYPE = RELOAD_AMMO_TYPE;
   Mercenary.prototype.reloadAll = function () {
     var reloaded = 0;
     this.items.forEach(function (item) {
       var ex = J.exemplar(item.getInt('Item ID'));
       if (!ex || ex.category !== CAT.WEAPON || !ex.defaultAmmoId || item.data[2] !== 1) { return; }
-      var changed = false;
-      if (!J.gunAcceptsAmmo(ex, item.getInt('Ammo ID'))) {
-        var ammo = ex.defaultAmmoId;
-        item.setInt('Ammo ID', ammo);
-        item.setInt('Ammo Variety', J.exemplar(ammo).ammoVariety);
-        item.setInt('Ammo %', 100);
-        changed = true;
+      var before = Array.prototype.slice.call(item.data).join();
+      if (ex.compatibleAmmoIds.indexOf(item.getInt('Ammo ID')) === -1) {
+        item.setInt('Ammo ID', ex.defaultAmmoId);
       }
-      if (item.data[6] !== RELOAD_ROUNDS) {     // ubGunShotsLeft
-        item.data[6] = RELOAD_ROUNDS;
-        changed = true;
-      }
-      if (changed) {
-        item.setInt('Weight', J.objectWeight(item));
-        ++reloaded;
-      }
+      item.data[6] = RELOAD_ROUNDS;                  // ubGunShotsLeft
+      item.setInt('Ammo %', 100);                    // bGunAmmoStatus
+      item.setInt('Ammo Variety', RELOAD_AMMO_TYPE); // ubGunAmmoType
+      item.setInt('Weight', J.objectWeight(item));
+      if (Array.prototype.slice.call(item.data).join() !== before) { ++reloaded; }
     });
     return reloaded;
   };
