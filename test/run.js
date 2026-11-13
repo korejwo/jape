@@ -233,6 +233,7 @@ for (const f of files) {
     testSupplyKits(f, new Uint8Array(orig), 0xCD, J.Mercenary.BACKPACK_4_2, 1);
     testQuickItems(f, new Uint8Array(orig));
     testRepairReload(f, new Uint8Array(orig));
+    testPrepareAll(f, new Uint8Array(orig));
   } else if (edited.version === J.SaveGame113.VERSION) {
     test113(f, edited);
   }
@@ -316,7 +317,19 @@ function testRepairReload(f, bytes) {
   const worn = merc.items.findIndex((it) => it.getInt('Item ID') &&
     [J.CAT.AMMO, J.CAT.WEAPON, J.CAT.MONEY].indexOf(J.exemplar(it.getInt('Item ID')).category) === -1);
   merc.items[worn].setInt('Item 1 %', 37);
-  const raised = team.reduce((n, m) => n + m.repairAll(), 0);
+  const profiles = team.map((m) => game.actors[game.actorMercs.indexOf(m)]);
+  const health = team.map((m, i) => {
+    const stats = new J.Chain([m, profiles[i]]);
+    stats.setInt('Max Health', 99 - i);
+    stats.setInt('Health', 94 - i);
+    return { max: stats.getInt('Max Health'), inc: stats.getInt('Health Inc') };
+  });
+  const raised = team.reduce((n, m, i) => n + m.repairAll(profiles[i]), 0);
+  const repaired = team.map((m) => new Uint8Array(m.data));
+  const repairedProfiles = profiles.map((a) => new Uint8Array(a.data));
+  check(f + ': Repair all on a fully repaired and healed team changes nothing',
+    team.every((m, i) => m.repairAll(profiles[i]) === 0 && firstDiff(m.data, repaired[i]) === -1 &&
+      firstDiff(profiles[i].data, repairedProfiles[i]) === -1));
   const firstGun = merc.items.findIndex((it) => { const ex = J.exemplar(it.getInt('Item ID'));
     return ex && ex.category === J.CAT.WEAPON && ex.defaultAmmoId && it.data[2] === 1; });
   // first gun: a magazine of another calibre and a jammed gun (negative ammo status)
@@ -329,6 +342,14 @@ function testRepairReload(f, bytes) {
   try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': repair/reload save reloads', false, e.message); return; }
   const items = back.mercs.find((m) => m.slot === merc.slot).items;
   check(f + ': Repair all raised statuses (' + raised + ')', raised >= 1 && items[worn].getInt('Item 1 %') === 100);
+  check(f + ': Repair all restores team Health in soldiers and profiles after save + reload',
+    team.every((m, i) => {
+      const soldier = back.mercs.find((b) => b.slot === m.slot);
+      const actor = back.actors[back.actorMercs.indexOf(soldier)];
+      return soldier.getInt('Health') === health[i].max && soldier.getInt('Max Health') === health[i].max &&
+        actor.getInt('Health') === health[i].max && actor.getInt('Max Health') === health[i].max &&
+        actor.getInt('Health Inc') === health[i].inc;
+    }));
   let ok = true;
   let guns = 0;
   const notes = [];
@@ -354,7 +375,75 @@ function testRepairReload(f, bytes) {
     reloaded + ' changed)', ok && guns > 0 && kept >= 1 && reloaded === guns, notes);
 }
 
-/** JA2 1.0x: LAW x6, Auto Rocket Rifle and Steyr AUG from the quick buttons, save, reload. */
+/** JA2 1.0x: combined preparation, energy restoration and unchanged read-only records. */
+function testPrepareAll(f, bytes) {
+  const game = J.SaveGame.load(bytes, f);
+  const team = game.mercs.filter((m) => m.isOnPlayerTeam() && m.items);
+  const profiles = team.map((m) => game.actors[game.actorMercs.indexOf(m)]);
+  const readonlyMercs = game.mercs.filter((m) => !m.isOnPlayerTeam());
+  const readonlyData = readonlyMercs.map((m) => new Uint8Array(m.data));
+  const readonlyProfiles = game.actors.filter((a, i) => !game.actorMercs[i] || !game.actorMercs[i].isOnPlayerTeam());
+  const readonlyProfileData = readonlyProfiles.map((a) => new Uint8Array(a.data));
+  const healthInc = profiles.map((a) => a.getInt('Health Inc'));
+  team.forEach((m, i) => {
+    new J.Chain([m, profiles[i]]).setInt('Max Health', 99 - i);
+    new J.Chain([m, profiles[i]]).setInt('Health', 94 - i);
+    m.setInt('Energy', 40 + i);
+    m.setInt('Max Energy', 60 + i);
+    m.items.forEach((it) => it.data.fill(0));
+    const gun = m.items[J.Mercenary.RIGHT_HAND];
+    J.QUICK_ITEMS.aug.make(gun);
+    gun.setInt('Item 1 %', 37);
+    gun.setInt('Attachment 1 %', 42);
+    gun.setInt('Ammo Quantity', 3);
+    gun.data[10] = 0xFB;
+    if (i === 0) gun.setInt('Ammo ID', 0x71);
+  });
+  const results = team.map((m, i) => m.prepareAll(profiles[i]));
+  const prepared = team.map((m) => new Uint8Array(m.data));
+  const preparedProfiles = profiles.map((a) => new Uint8Array(a.data));
+  check(f + ': Prepare all repeats without modifying an already prepared team',
+    team.every((m, i) => !m.prepareAll(profiles[i]).changed && firstDiff(m.data, prepared[i]) === -1 &&
+      firstDiff(profiles[i].data, preparedProfiles[i]) === -1));
+  let back;
+  try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': Prepare all save reloads', false, e.message); return; }
+  check(f + ': Prepare all repairs, reloads, dresses and supplies every merc after save + reload',
+    team.every((m, i) => {
+      const soldier = back.mercs.find((b) => b.slot === m.slot);
+      const gun = soldier.items[J.Mercenary.RIGHT_HAND];
+      return results[i].changed && results[i].repaired >= 2 && results[i].reloaded === 1 && !results[i].missingKits.length &&
+        gun.getInt('Item 1 %') === 100 && gun.getInt('Attachment 1 %') === 100 &&
+        gun.getInt('Ammo Quantity') === 255 && gun.getInt('Ammo Variety') === 8 && gun.getInt('Ammo %') === 100 &&
+        gun.getInt('Ammo ID') === (i === 0 ? J.exemplar(0x14).defaultAmmoId : 0x5F) &&
+        J.FULL_DRESS.every((piece) => soldier.items[piece.slot].getInt('Item ID') === piece.id &&
+          soldier.items[piece.slot].getInt('Item 1 %') === 100) &&
+        [0xCA, 0xCD].every((id) => soldier.items.filter((it) => it.getInt('Item ID') === id).length === 1 &&
+          soldier.items.find((it) => it.getInt('Item ID') === id).getInt('Item 1 %') === 100);
+    }));
+  check(f + ': Prepare all restores Health and both Energy fields without changing Max Health or Health Inc',
+    team.every((m, i) => {
+      const soldier = back.mercs.find((b) => b.slot === m.slot);
+      const actor = back.actors[back.actorMercs.indexOf(soldier)];
+      return results[i].healed && results[i].energized && soldier.getInt('Health') === 99 - i &&
+        actor.getInt('Health') === 99 - i && soldier.getInt('Max Health') === 99 - i &&
+        actor.getInt('Max Health') === 99 - i && actor.getInt('Health Inc') === healthInc[i] &&
+        soldier.getInt('Energy') === 100 && soldier.getInt('Max Energy') === 100;
+    }));
+  check(f + ': Prepare all leaves non-team soldiers and profiles byte-identical after save + reload',
+    readonlyMercs.every((m, i) => firstDiff(back.mercs.find((b) => b.slot === m.slot).data, readonlyData[i]) === -1) &&
+    readonlyProfiles.every((a, i) => firstDiff(back.actors[game.actors.indexOf(a)].data, readonlyProfileData[i]) === -1));
+  const merc = team[0];
+  const beforeEnergy = new Uint8Array(merc.data);
+  merc.setInt('Energy', 37);
+  merc.setInt('Max Energy', 65);
+  const rested = merc.prepareAll(profiles[0]);
+  check(f + ': Energy restoration alone is a change and touches only the Energy fields',
+    rested.changed && rested.energized && !rested.healed && rested.repaired === 0 && rested.reloaded === 0 &&
+    merc.data.every((b, i) => i === merc.field('Energy').offset || i === merc.field('Max Energy').offset || b === beforeEnergy[i]) &&
+    merc.getInt('Energy') === 100 && merc.getInt('Max Energy') === 100);
+}
+
+/** JA2 1.0x: quick items survive save + reload with their expected object data. */
 function testQuickItems(f, bytes) {
   const game = J.SaveGame.load(bytes, f);
   const merc = game.mercs.find((m) => m.isOnPlayerTeam() && m.items);
@@ -368,8 +457,8 @@ function testQuickItems(f, bytes) {
   try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': quick items save reloads', false, e.message); return; }
   const items = back.mercs.find((m) => m.slot === merc.slot).items;
   const hex = (it) => Array.from(it.data.slice(0, 0x22), (b) => b.toString(16).padStart(2, '0')).join('');
-  // usItem 0x33, 6 objects, bStatus[0..5] = 100, bGunAmmoStatus 100, ubImprintID 200, ubWeight 21
-  check(f + ': LAW x6 bytes', hex(items[free[0]]) === '33000600646464646464640000000000' + '0000000000000000' + '00000000' + '000000c8' + '1500', hex(items[free[0]]));
+  // usItem 0x33, 6 objects, bStatus[0..5] = 100, bGunAmmoStatus 100, ubImprintID 200, ubWeight 0
+  check(f + ': weightless LAW x6 bytes', hex(items[free[0]]) === '33000600646464646464640000000000' + '0000000000000000' + '00000000' + '000000c8' + '0000', hex(items[free[0]]));
   // usItem 0x41, status 100, HEAT (10), 255 rounds, minirockets HEAP 0x71, ammo 100%,
   // Laser Scope 0xF1 and Sniper Scope 0xD0 at 100%, imprint 200, weight 40 + 10 + 4 + 9 = 63
   check(f + ': Auto Rocket Rifle bytes', hex(items[free[1]]) === '41000100640aff007100640000000000' +
@@ -386,6 +475,15 @@ function testQuickItems(f, bytes) {
     items[free[1]].get('Ammo ID') === 'Minirockets, HEAP' && items[free[1]].getInt('Ammo Quantity') === 255 &&
     items[free[2]].get('Item ID') === 'Steyr AUG' && items[free[2]].get('Ammo ID') === '5.56mm Magazine, HP' &&
     items[free[2]].get('Attachment 2 ID') === 'Sniper Scope' && items[free[2]].getInt('Attachment 3 ID') === 0);
+
+  const mortar = merc.items[free[0]];
+  mortar.data.fill(0xA5);
+  J.QUICK_ITEMS.mortarShell.make(mortar);
+  try { back = J.SaveGame.load(game.save(), f); } catch (e) { check(f + ': Mortar Shell save reloads', false, e.message); return; }
+  const shell = back.mercs.find((m) => m.slot === merc.slot).items[free[0]];
+  check(f + ': weightless Mortar Shell x6 bytes (all statuses 100%, stale data cleared)',
+    hex(shell) === '8c000600646464646464000000000000' +
+      '0000000000000000' + '00000000' + '00000000' + '0000', hex(shell));
 }
 
 /** JA2 1.13 v5: edit a team member (soldier + profile) and a profile, save, reload. */

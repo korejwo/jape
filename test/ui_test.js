@@ -92,6 +92,8 @@ async function main() {
   const fsa = await ev('typeof window.showOpenFilePicker');
   console.log('     showOpenFilePicker on file:// = ' + fsa + ', isSecureContext = ' + (await ev('window.isSecureContext')));
   check('Save/Close disabled without a file', await ev(`$('[data-cmd=save]').prop('disabled') && $('[data-cmd=close]').prop('disabled')`));
+  check('Add mortar shell disabled without a file', await ev(`$('.btn.add-mortar-shell').prop('disabled')`));
+  check('Prepare all disabled without a file', await ev(`$('.btn.team[data-team=prepare]').prop('disabled')`));
   await shot('01-empty');
 
   // ---- menu
@@ -123,14 +125,17 @@ async function main() {
   check('Fox health from profile (0.41 fix)', (await ev(`$('#stat-panel input[aria-label="Health"]').val()`)) !== '');
   check('status says read-only', /Read-only/.test(await ev(`$('#status-msg').text()`)));
   check('Fox item slots disabled', await ev(`$('.slots .btn:not(.team)').toArray().every(e => e.disabled)`));
-  check('team buttons enabled while a read-only character is shown', await ev(`$('.btn.team').toArray().every(e => !e.disabled)`));
+  check('Prepare all replaces the three team buttons and stays enabled for a read-only selection',
+    await ev(`$('.btn.team').length === 1 && $('.btn.team').text() === 'Prepare all' &&
+      !$('.btn.team[data-team=prepare]').prop('disabled')`));
+  check('individual Full Dress button removed', (await ev(`$('.btn.full-dress').length`)) === 0);
   check('Fox: skill buttons disabled', await ev(`$('.btn.bump').toArray().every(e => e.disabled)`));
 
   // ---- read-only soldier (Pacos): items browsable, not editable
   await click(`#actor-${idx('Pacos')}`);
   check('Pacos stats disabled', await ev(`$('#stat-panel input').toArray().every(e => e.disabled)`));
   check('Pacos slots browsable', await ev(`$('.slots .btn:not(.action)').toArray().every(e => !e.disabled)`));
-  check('Pacos: Full Dress disabled (read-only)', await ev(`$('.btn.full-dress').prop('disabled')`));
+  check('Pacos: Add buttons disabled (read-only)', await ev(`$('.slots .btn.action:not(.team)').toArray().every(e => e.disabled)`));
   check('Pacos item detail disabled', await ev(`$('.detail select, .detail input').toArray().every(e => e.disabled)`));
 
   // ---- team member (Qt)
@@ -283,32 +288,27 @@ async function main() {
   await choose('.detail select[aria-label="Item ID"]', 1); // back to Glock 17
   check('Glock unlocks the left hand', await ev(`!$(${JSON.stringify(slotBtn(7))}).prop('disabled')`));
 
-  // ---- Full Dress
-  check('Full Dress enabled for a team member', await ev(`!$('.btn.full-dress').prop('disabled') && $('.btn.full-dress').is(':visible')`));
-  await click('.btn.full-dress');
-  const dressed = await ev(`$('.slots .btn').map((i, e) => $(e).text()).get().slice(0, 6)`);
-  check('Full Dress puts on the set', JSON.stringify(dressed) === JSON.stringify(['Night Vision Goggles', 'Coated Spectra Helmet', 'Extended Ear', 'Coated Spectra Vest', 'Glock 17', 'Coated Spectra Leggings']), dressed);
-  const vestView = await ev(`[1, 2, 3, 4].map(k => $('.detail select[aria-label="Attachment ' + k + ' ID"] option:selected').text() + ' ' + $('.detail input[aria-label="Attachment ' + k + ' %"]').val())`);
-  check('vest shown with 4 Ceramic Plates at 100%', vestView.every((v) => v === 'Ceramic Plates 100'), vestView);
-  check('vest weight 7.7 kg', (await ev(`$('.detail input[aria-label="Weight"]').val()`)) === '77');
-  check('Full Dress marks the file modified', (await ev('document.title')).endsWith(' *'));
-  const dressedBack = await ev(`(() => { const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'x'); const it = g.getMercByNick('Qt').items;
-    return [0, 1, 2, 3, 4].map(k => it[k].get('Item ID') + '/' + it[k].getInt('Item 1 %') + '/' + it[k].getInt('Weight')).concat([it[1].get('Attachment 4 ID')]); })()`);
-  check('Full Dress survives save + reload', JSON.stringify(dressedBack) === JSON.stringify(['Coated Spectra Helmet/100/13', 'Coated Spectra Vest/100/77', 'Coated Spectra Leggings/100/35', 'Night Vision Goggles/100/9', 'Extended Ear/100/9', 'Ceramic Plates']), dressedBack);
-  await shot('14-full-dress');
-
   // ---- Add LAW / Add rifle: first empty slot from the last one
   const slotOf = (id) => ev(`JAPE.app.game.getMercByNick('Qt').items.map(it => it.getInt('Item ID'))`).then((ids) => ids);
   check('Add buttons enabled', await ev(`!$('.btn.add-law').prop('disabled') && !$('.btn.add-rifle').prop('disabled')`));
+  check('Add mortar shell fits directly below Add LAW and above Add rifle', await ev(`(() => {
+    const law = document.querySelector('.btn.add-law').getBoundingClientRect();
+    const shell = document.querySelector('.btn.add-mortar-shell');
+    const rect = shell.getBoundingClientRect();
+    const rifle = document.querySelector('.btn.add-rifle').getBoundingClientRect();
+    return !shell.disabled && shell.textContent === 'Add mortar shell' && rect.left === law.left &&
+      rect.top === law.bottom && rifle.top === rect.bottom && shell.scrollWidth <= shell.clientWidth;
+  })()`));
   const before = await slotOf();
   await click('.btn.add-law');
   let ids = await slotOf();
   const lawSlot = ids.findIndex((v, i) => v !== before[i]);
   const lastFree = before.lastIndexOf(0);
   check('LAW goes to the last empty slot', lawSlot === lastFree && ids[lawSlot] === 0x33, [lastFree, lawSlot]);
-  check('LAW x6, statuses 100, not fingerprint-locked', JSON.stringify(await ev(`(() => { const it = JAPE.app.game.getMercByNick('Qt').items[${lawSlot}];
-    return [it.getInt('Quantity'), [1,2,3,4,5,6].map(k => it.getInt('Item ' + k + ' %')).join(), it.getInt('Unknown 4'), it.getInt('Weight')]; })()`)) === JSON.stringify([6, '100,100,100,100,100,100', 200, 21]));
-  check('detail shows the LAW stack', (await ev(`$('.detail input[aria-label="Quantity"]').val()`)) === '6');
+  check('LAW x6, statuses 100, not fingerprint-locked, weight 0', JSON.stringify(await ev(`(() => { const it = JAPE.app.game.getMercByNick('Qt').items[${lawSlot}];
+    return [it.getInt('Quantity'), [1,2,3,4,5,6].map(k => it.getInt('Item ' + k + ' %')).join(), it.getInt('Unknown 4'), it.getInt('Weight')]; })()`)) === JSON.stringify([6, '100,100,100,100,100,100', 200, 0]));
+  check('detail shows the weightless LAW stack', (await ev(`$('.detail input[aria-label="Quantity"]').val()`)) === '6' &&
+    (await ev(`$('.detail input[aria-label="Weight"]').val()`)) === '0');
   await click('.btn.add-rifle');
   const ids2 = await slotOf();
   const rifleSlot = ids2.findIndex((v, i) => v !== ids[i]);
@@ -351,6 +351,24 @@ async function main() {
     .concat([1, 2, 3, 4].map(k => $('.detail select[aria-label="Attachment ' + k + ' ID"] option:selected').text() + ' ' + $('.detail input[aria-label="Attachment ' + k + ' %"]').val()))`);
   check('Dragunov: 255 x 7.62mm WP (default), Laser + Sniper Scope, weight 5.9 kg', JSON.stringify(dragView) === JSON.stringify(
     ['Dragunov', '7.62mm WP Magazine, 10', '255', '2', '59', 'Laser Scope 100', 'Sniper Scope 100', 'None 0', 'None 0']), dragView);
+  await ev('JAPE.app.setModified(false)');
+  await click('.btn.add-mortar-shell');
+  const shellIds = await slotOf();
+  const shellSlot = shellIds.findIndex((v, i) => v !== ids6[i]);
+  check('Mortar Shell goes to the last empty slot without replacing other items',
+    shellSlot === ids6.lastIndexOf(0) && shellIds[shellSlot] === 0x8C &&
+    shellIds.every((id, i) => i === shellSlot || id === ids6[i]), shellSlot);
+  check('detail shows six Mortar Shells at 100%, weight 0', JSON.stringify(await ev(`[
+    $('.detail select[aria-label="Item ID"] option:selected').text(), $('.detail input[aria-label="Quantity"]').val(),
+    [1,2,3,4,5,6].map(k => $('.detail input[aria-label="Item ' + k + ' %"]').val()).join(),
+    $('.detail input[aria-label="Weight"]').val()
+  ]`)) === JSON.stringify(['Mortar Shell', '6', '100,100,100,100,100,100', '0']));
+  check('Add mortar shell marks the save modified and survives save + reload', await ev(`(() => {
+    const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'x');
+    const it = g.getMercByNick('Qt').items[${shellSlot}];
+    return JAPE.app.modified && it.getInt('Item ID') === 0x8C && it.getInt('Quantity') === 6 &&
+      [1,2,3,4,5,6].every(k => it.getInt('Item ' + k + ' %') === 100) && it.getInt('Weight') === 0;
+  })()`));
   await shot('15-quick-items');
   // keep adding: armour/head slots never take a LAW; when nothing is left, a message
   let dialogSeen = false;
@@ -363,6 +381,11 @@ async function main() {
   if (dialogSeen) { await click('.dialog-buttons .btn'); }
   const final = await slotOf();
   check('armour and head slots untouched', JSON.stringify(final.slice(0, 5)) === JSON.stringify(ids2.slice(0, 5)), final.slice(0, 5));
+  check('all added LAW stacks remain weightless after save + reload', await ev(`(() => {
+    const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'x');
+    return g.getMercByNick('Qt').items.filter(it => it.getInt('Item ID') === 0x33)
+      .every(it => it.getInt('Weight') === 0);
+  })()`));
 
   // ---- Money Value: 4-byte amount
   await click(slotBtn(8));            // BACKPACK_1_1, the Silver Nugget from the money test
@@ -370,27 +393,80 @@ async function main() {
   check('Money Value keeps 100000', (await ev(`JAPE.app.game.getMercByNick('Qt').items[11].getInt('Money Value')`)) === 100000 &&
     (await ev(`$('.detail input[aria-label="Money Value"]').attr('maxlength')`)) === '10');
 
-  // ---- the Glock in the hand: no minirockets offered; load 9mm HP to see Reload all keep it
+  // ---- the Glock in the hand: no minirockets offered; Prepare all keeps 9mm HP
   await click(slotBtn(5));
   check('Glock ammo list has no minirockets', !(await ev(`$('.detail select[aria-label="Ammo ID"] option').map((i, o) => +o.value).get()`)).includes(0x71));
   await choose('.detail select[aria-label="Ammo ID"]', 0x4B);
   check('9mm HP in the Glock: ammo type 1', (await ev(`$('.detail input[aria-label="Ammo Variety"]').val()`)) === '1');
 
-  // ---- whole-team buttons
+  // ---- combined whole-team preparation, even from a read-only selection
+  const prepare = async () => {
+    await click('.btn.team[data-team=prepare]');
+    if (await ev(`$('.dialog').length`)) await click('.dialog-buttons .btn');
+  };
   await ev(`(() => { const g = JAPE.app.game; const sh = g.getMercByNick('Shadow');
     sh.items[5].setInt('Item 1 %', 40); sh.items[7].setInt('Item 1 %', 55);
-    g.getMercByNick('Qt').items[5].data[6] = 3; g.getMercByNick('Qt').items[5].data[10] = 0xFB; })()`);
+    g.getMercByNick('Qt').items[5].data[6] = 3; g.getMercByNick('Qt').items[5].data[10] = 0xFB;
+    JAPE.app.team().forEach((m, i) => {
+      const stats = new JAPE.Chain([m, g.actors[g.actorMercs.indexOf(m)]]);
+      stats.setInt('Max Health', 99 - i); stats.setInt('Health', 94 - i);
+      m.setInt('Energy', 40 + i); m.setInt('Max Energy', 60 + i);
+    });
+    window.__prepareReadonly = g.actors.filter((a, i) => !g.actorMercs[i] || !g.actorMercs[i].isOnPlayerTeam())
+      .map(a => Array.from(a.data).join());
+    window.__prepareReadonlyMercs = g.mercs.filter(m => !m.isOnPlayerTeam()).map(m => Array.from(m.data).join()); })()`);
   await click(`#actor-${idx('Fox')}`);
-  await click('.btn.team[data-team=repair]');
+  await prepare();
   const afterRepair = await ev(`(() => { const sh = JAPE.app.game.getMercByNick('Shadow'); return [sh.items[5].getInt('Item 1 %'), sh.items[7].getInt('Item 1 %'), $('#status-msg').text()]; })()`);
-  check('Repair all repairs the whole team', afterRepair[0] === 100 && afterRepair[1] === 100 && /^Repair all: \d+ status/.test(afterRepair[2]), afterRepair);
-  await click('.btn.team[data-team=reload]');
+  check('Prepare all repairs the whole team', afterRepair[0] === 100 && afterRepair[1] === 100 && /^Prepare all: \d+ status/.test(afterRepair[2]), afterRepair);
+  check('Prepare all status does not overflow the page and exposes the full summary in a tooltip',
+    await ev(`document.scrollingElement.scrollHeight <= innerHeight && document.scrollingElement.scrollWidth <= innerWidth &&
+      document.querySelector('#status-file').getBoundingClientRect().right <= innerWidth &&
+      $('#status-msg').attr('title') === $('#status-msg').text()`));
+  const healedTeam = await ev(`(() => { const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'x');
+    return JAPE.app.team().map((m, i) => {
+      const soldier = g.getMercByNick(m.get('Nickname')); const actor = g.actors[g.actorMercs.indexOf(soldier)];
+      return soldier.getInt('Health') === 99 - i && soldier.getInt('Max Health') === 99 - i &&
+        actor.getInt('Health') === 99 - i && actor.getInt('Max Health') === 99 - i;
+    }).every(Boolean); })()`);
+  check('Prepare all heals every team soldier and profile to their own Max Health after save + reload', healedTeam);
+  check('Prepare all restores Energy and Max Energy for the whole team after save + reload', await ev(`(() => {
+    const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'x');
+    return JAPE.app.team().every(m => { const soldier = g.getMercByNick(m.get('Nickname'));
+      return soldier.getInt('Energy') === 100 && soldier.getInt('Max Energy') === 100; });
+  })()`));
+  check('Prepare all leaves read-only profiles and soldiers unchanged', await ev(`(() => { const g = JAPE.app.game;
+    return g.actors.filter((a, i) => !g.actorMercs[i] || !g.actorMercs[i].isOnPlayerTeam())
+      .every((a, i) => Array.from(a.data).join() === window.__prepareReadonly[i]) &&
+      g.mercs.filter(m => !m.isOnPlayerTeam()).every((m, i) => Array.from(m.data).join() === window.__prepareReadonlyMercs[i]); })()`));
+  await click(`#actor-${idx('*Qt')}`);
+  await type('#stat-panel input[aria-label="Health"]', '94');
+  await key('Tab', 'Tab', 9);
+  await ev('JAPE.app.setModified(false)');
+  await prepare();
+  check('Prepare all refreshes Health without changing Max Health',
+    (await ev(`$('#stat-panel input[aria-label="Health"]').val()`)) === '99' &&
+    (await ev(`$('#stat-panel input[aria-label="Max Health"]').val()`)) === '99');
+  check('Healing alone marks the save modified and reports the healed merc',
+    await ev(`JAPE.app.modified && /0 status value\\(s\\).*1 merc\\(s\\) healed/.test($('#status-msg').text())`));
+  await type('#stat-panel input[aria-label="Energy"]', '37');
+  await key('Tab', 'Tab', 9);
+  await ev(`JAPE.app.game.getMercByNick('Qt').setInt('Max Energy', 65); JAPE.app.setModified(false)`);
+  await prepare();
+  check('Energy restoration alone marks the save modified, refreshes Energy and reports the rested merc',
+    await ev(`JAPE.app.modified && $('#stat-panel input[aria-label="Energy"]').val() === '100' &&
+      JAPE.app.game.getMercByNick('Qt').getInt('Max Energy') === 100 &&
+      /0 merc\\(s\\) healed; 1 merc\\(s\\) rested/.test($('#status-msg').text())`));
+  await shot('19-prepare-energy');
+  await ev('JAPE.app.setModified(false)');
+  await prepare();
+  check('Prepare all on an already prepared team leaves the save unmodified', !(await ev('JAPE.app.modified')));
   const afterReload = await ev(`(() => { const g = JAPE.app.game; const q = g.getMercByNick('Qt').items; const sh = g.getMercByNick('Shadow').items;
     return [q[5].data[6], q.find(it => it.getInt('Item ID') === 0x14).data[6], sh[7].data[6], $('#status-msg').text(), q[5].getInt('Ammo ID'),
       q[5].data[5], q[5].data[10], q.find(it => it.getInt('Item ID') === 0x14).getInt('Ammo ID')]; })()`);
-  check('Reload all: 255 rounds in Glock, AUG and Shadow\'s Beretta', afterReload[0] === 255 && afterReload[1] === 255 && afterReload[2] === 255 &&
-    /^Reload all: \d+ gun/.test(afterReload[3]), afterReload);
-  check('Reload all keeps the magazines (Glock 9mm HP, AUG 5.56mm HP), type 8, jam cleared',
+  check('Prepare all: 255 rounds in Glock, AUG and Shadow\'s Beretta', afterReload[0] === 255 && afterReload[1] === 255 && afterReload[2] === 255 &&
+    /^Prepare all: \d+ status.*\d+ gun/.test(afterReload[3]), afterReload);
+  check('Prepare all keeps the magazines (Glock 9mm HP, AUG 5.56mm HP), type 8, jam cleared',
     afterReload[4] === 0x4B && afterReload[7] === 0x5F && afterReload[5] === 8 && afterReload[6] === 100, afterReload);
   const allGuns = await ev(`JAPE.app.team().map(m => m.items.filter(it => { const ex = JAPE.exemplar(it.getInt('Item ID'));
     return ex && ex.category === JAPE.CAT.WEAPON && ex.defaultAmmoId && it.data[2] === 1; }).map(it => [it.data[6], it.data[5]])).flat()`);
@@ -408,27 +484,27 @@ async function main() {
     qt.items.slice(5).forEach(it => { if (!it.getInt('Item ID')) JAPE.makeLawStack(it, 1); });
     window.__qtBeforeKits = qt.items.slice(5).map(it => Array.from(it.data).join());
     JAPE.app.setModified(false); })()`);
-  await click('.btn.team[data-team=dress]');
+  await click('.btn.team[data-team=prepare]');
   const kitWarning = await ev(`$('.dialog-text').text()`);
-  check('Full Dress all reports the merc and both kits that do not fit',
+  check('Prepare all reports the merc and both kits that do not fit',
     kitWarning.includes('Qt: Medical Kit, Camouflage Kit') && !/Shadow|Steroid/.test(kitWarning), kitWarning);
   await shot('16-no-kit-slot');
   await click('.dialog-buttons .btn');
   const dressedTeam = await ev(`['Qt', 'Shadow', 'Steroid'].map(n => JAPE.app.game.getMercByNick(n).items.slice(0, 5).map(it => it.getInt('Item ID')).join())`);
-  check('Full Dress all dresses every team member', dressedTeam.every((v) => v === '182,169,175,211,210'), dressedTeam);
+  check('Prepare all dresses every team member', dressedTeam.every((v) => v === '182,169,175,211,210'), dressedTeam);
   const kits = await ev(`['Shadow', 'Steroid'].map(n => JAPE.app.game.getMercByNick(n).items
     .map((it, i) => [i, it.getInt('Item ID'), it.getInt('Quantity'), it.getInt('Item 1 %'), it.getInt('Weight')])
     .filter(it => [0xCA, 0xCD].includes(it[1])))`);
-  check('Full Dress all refills Shadow\'s kits and creates Steroid\'s in matching pockets',
+  check('Prepare all refills Shadow\'s kits and creates Steroid\'s in matching pockets',
     JSON.stringify(kits) === JSON.stringify([[[10, 0xCA, 1, 100, 18], [18, 0xCD, 1, 100, 1]],
       [[10, 0xCA, 1, 100, 18], [18, 0xCD, 1, 100, 1]]]), kits);
-  check('Full Dress all never overwrites a full inventory', await ev(`JAPE.app.game.getMercByNick('Qt').items.slice(5)
+  check('Prepare all never overwrites a full inventory', await ev(`JAPE.app.game.getMercByNick('Qt').items.slice(5)
     .every((it, i) => Array.from(it.data).join() === window.__qtBeforeKits[i])`));
-  check('Full Dress all marks changes even when one kit cannot be added', await ev('JAPE.app.modified'));
+  check('Prepare all marks changes even when one kit cannot be added', await ev('JAPE.app.modified'));
   await ev(`JAPE.app.game.getMercByNick('Qt').items[18].data.fill(0)`);
-  await click('.btn.team[data-team=dress]');
+  await click('.btn.team[data-team=prepare]');
   const partialWarning = await ev(`$('.dialog-text').text()`);
-  check('Full Dress all reports only the kit that still does not fit',
+  check('Prepare all reports only the kit that still does not fit',
     partialWarning.includes('Qt: Medical Kit') && !/Camouflage Kit|Shadow|Steroid/.test(partialWarning), partialWarning);
   check('Camouflage Kit is supplied even when Medical Kit does not fit',
     await ev(`JAPE.app.game.getMercByNick('Qt').items[18].getInt('Item ID') === 0xCD &&
@@ -436,8 +512,8 @@ async function main() {
   await click('.dialog-buttons .btn');
   await ev(`(() => { const g = JAPE.app.game; g.getMercByNick('Qt').items[10].data.fill(0);
     ['Shadow', 'Steroid'].forEach(n => [10, 18].forEach(s => g.getMercByNick(n).items[s].setInt('Item 1 %', 23))); })()`);
-  await click('.btn.team[data-team=dress]');
-  check('Full Dress all succeeds without a warning after freeing a big pocket', (await ev(`$('.dialog').length`)) === 0);
+  await click('.btn.team[data-team=prepare]');
+  check('Prepare all succeeds without a warning after freeing a big pocket', (await ev(`$('.dialog').length`)) === 0);
   const kitsBack = await ev(`(() => { const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'x');
     return ['Qt', 'Shadow', 'Steroid'].map(n => g.getMercByNick(n).items.filter(it => [0xCA, 0xCD].includes(it.getInt('Item ID')))
       .map(it => [it.getInt('Item ID'), it.getInt('Quantity'), it.getInt('Item 1 %'), it.getInt('Weight')])); })()`);
@@ -449,6 +525,14 @@ async function main() {
   check('team actions and money survive save + reload', JSON.stringify(teamBack) === JSON.stringify(['Coated Spectra Vest', 100, 255, 100000]), teamBack);
   await click(`#actor-${idx('*Qt')}`);
   await shot('16-team');
+  await click(slotBtn(4));
+  const vestView = await ev(`[1, 2, 3, 4].map(k => $('.detail select[aria-label="Attachment ' + k + ' ID"] option:selected').text() + ' ' + $('.detail input[aria-label="Attachment ' + k + ' %"]').val())`);
+  check('Prepare all vest shown with 4 Ceramic Plates at 100%', vestView.every((v) => v === 'Ceramic Plates 100'), vestView);
+  check('vest weight 7.7 kg', (await ev(`$('.detail input[aria-label="Weight"]').val()`)) === '77');
+  const dressedBack = await ev(`(() => { const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'x'); const it = g.getMercByNick('Qt').items;
+    return [0, 1, 2, 3, 4].map(k => it[k].get('Item ID') + '/' + it[k].getInt('Item 1 %') + '/' + it[k].getInt('Weight')).concat([it[1].get('Attachment 4 ID')]); })()`);
+  check('Prepare all armour survives save + reload', JSON.stringify(dressedBack) === JSON.stringify(['Coated Spectra Helmet/100/13', 'Coated Spectra Vest/100/77', 'Coated Spectra Leggings/100/35', 'Night Vision Goggles/100/9', 'Extended Ear/100/9', 'Ceramic Plates']), dressedBack);
+  await shot('14-prepare-armour');
   await click('.slots .btn[title="Backpack 4-3: Medical Kit"]');
   check('Medical Kit appears in the selected merc\'s inventory details',
     (await ev(`$('.detail select[aria-label="Item ID"] option:selected').text()`)) === 'Medical Kit' &&

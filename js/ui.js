@@ -634,18 +634,15 @@
       row.forEach(function (slot, c) { SLOT_NAMES[slot] = 'Backpack ' + (r + 1) + '-' + (c + 1); });
     });
 
-    // Custom buttons: a column of their own, right of the slots. Rows 1-5 act
-    // on the selected merc, rows 7-9 on the whole team.
-    this.$fullDress = $('<button type="button" class="btn action full-dress">')
-      .text('Full Dress')
-      .attr('title', 'Put on Coated Spectra Helmet, Coated Spectra Vest with 4 Ceramic Plates, ' +
-        'Coated Spectra Leggings, Night Vision Goggles and Extended Ear (replaces the items in those slots)')
-      .css({ gridRow: '1', gridColumn: '4' })
-      .on('click', function () { self.fullDress(); });
+    // Custom buttons: rows 1-5 act on the selected merc, row 7 on the whole team.
     this.$addLaw = $('<button type="button" class="btn action add-law">').text('Add LAW')
-      .attr('title', 'Create 6 LAWs in one slot: the first empty slot, searching from the last one')
-      .css({ gridRow: '3', gridColumn: '4' })
+      .attr('title', 'Create 6 weightless LAWs in one slot: the first empty slot, searching from the last one')
+      .css({ gridRow: '2', gridColumn: '4' })
       .on('click', function () { self.addQuickItem('law'); });
+    this.$addMortarShell = $('<button type="button" class="btn action add-mortar-shell">').text('Add mortar shell')
+      .attr('title', 'Create 6 weightless Mortar Shells at 100% in one slot: the first empty slot, searching from the last one')
+      .css({ gridRow: '3', gridColumn: '4' })
+      .on('click', function () { self.addQuickItem('mortarShell'); });
     this.$addRifle = $('<button type="button" class="btn action add-rifle">').text('Add rifle')
       .attr('title', 'Create an Auto Rocket Rifle with 255 HEAP minirockets, Laser Scope and Sniper Scope: ' +
         'the first empty slot, searching from the last one')
@@ -654,28 +651,22 @@
     this.$addAug = $('<button type="button" class="btn action add-aug">').text('Add AUG')
       .attr('title', 'Create a Steyr AUG with 255 rounds of 5.56mm HP, Laser Scope and Sniper Scope: ' +
         'the first empty slot, searching from the last one')
-      .css({ gridRow: '2', gridColumn: '4' })
+      .css({ gridRow: '1', gridColumn: '4' })
       .on('click', function () { self.addQuickItem('aug'); });
     this.$addDragunov = $('<button type="button" class="btn action add-dragunov">').text('Add dragunov')
       .attr('title', 'Create a Dragunov with 255 rounds of 7.62mm WP (its default magazine), Laser Scope and Sniper Scope: ' +
         'the first empty slot, searching from the last one')
       .css({ gridRow: '5', gridColumn: '4' })
       .on('click', function () { self.addQuickItem('dragunov'); });
-    $slots.append(this.$fullDress, this.$addLaw, this.$addRifle, this.$addAug, this.$addDragunov);
+    $slots.append(this.$addLaw, this.$addMortarShell, this.$addRifle, this.$addAug, this.$addDragunov);
 
-    // Whole-team actions (every merc marked *), lower in the same column.
     this.onTeamAction = null;
-    this.$teamButtons = $();
-    [['repair', 'Repair all', 'Raise every item and attachment of the whole team (*) to 100%'],
-      ['reload', 'Reload all', 'Renew the magazine of every gun of the whole team (*): 255 rounds, ' +
-        'ammo type 8 (knife: not stopped by vests and leggings)'],
-      ['dress', 'Full Dress all', 'Full Dress, Medical Kit and Camouflage Kit at 100% for every merc of the whole team (*); ' +
-        'refill existing kits, otherwise use a free slot that fits']].forEach(function (b, c) {
-      var $b = $('<button type="button" class="btn action team">').text(b[1]).attr({ title: b[2], 'data-team': b[0] })
-        .css({ gridRow: String(7 + c), gridColumn: '4' })
-        .on('click', function () { if (self.onTeamAction) { self.onTeamAction(b[0]); } });
-      self.$teamButtons = self.$teamButtons.add($b);
-    });
+    this.$teamButtons = $('<button type="button" class="btn action team">').text('Prepare all')
+      .attr({ 'data-team': 'prepare', title: 'Prepare the whole team (*): repair items and attachments to 100%, ' +
+        'restore Health to Max Health and Energy / Max Energy to 100, reload guns with 255 rounds of ammo type 8 (knife), ' +
+        'apply Full Dress, refill or add Medical Kit and Camouflage Kit at 100% in a free slot that fits' })
+      .css({ gridRow: '7', gridColumn: '4' })
+      .on('click', function () { if (self.onTeamAction) { self.onTeamAction(); } });
     $slots.append(this.$teamButtons);
 
     this.$note = $('<p class="item-note">').text('Item editing is not supported for JA2 1.13 save games.');
@@ -699,7 +690,7 @@
     this.mode = mode;
     this.refreshButtons();
     this.$note.toggleClass('shown', mode === 'unsupported');
-    [this.$fullDress, this.$addLaw, this.$addRifle, this.$addAug, this.$addDragunov].forEach(function ($b) {
+    [this.$addLaw, this.$addMortarShell, this.$addRifle, this.$addAug, this.$addDragunov].forEach(function ($b) {
       $b.toggle(mode !== 'unsupported').prop('disabled', mode !== 'edit' || !this.merc);
     }, this);
     this.selectSlot(SLOT_ROWS[0][0]);
@@ -738,15 +729,6 @@
   /** Whole-team buttons: shown for JA2 1.0x (or no file), enabled with a team. */
   ItemPanel.prototype.setTeamActions = function (visible, enabled) {
     this.$teamButtons.toggle(visible).prop('disabled', !enabled);
-  };
-
-  /** Puts on the Full Dress set, replacing what is in those slots. */
-  ItemPanel.prototype.fullDress = function () {
-    if (this.mode !== 'edit' || !this.merc) { return; }
-    this.merc.fullDress();
-    this.refreshButtons();
-    this.selectSlot(J.FULL_DRESS[1].slot);   // show the vest with its plates
-    this.onChanged();
   };
 
   ItemPanel.prototype.itemAt = function (slot) {
@@ -1100,7 +1082,7 @@
     this.$classicItems = $('<div class="classic-items">').appendTo('#item-panel');
     this.itemPanel = new ItemPanel(this.$classicItems, function () { self.dataChanged(null); });
     this.inv113 = new Inventory113Panel($('#item-panel'), function () { self.dataChanged(null); });
-    this.itemPanel.onTeamAction = function (kind) { self.teamAction(kind); };
+    this.itemPanel.onTeamAction = function () { self.teamAction(); };
 
     this.bindMenus();
     this.bindList();
@@ -1306,7 +1288,7 @@
       msg = 'Read-only: ' + (actor.get('Nickname') || actor.get('Name') || 'this character') +
         ' is not on your team. Only characters marked * can be edited.';
     }
-    $('#status-msg').text(msg);
+    $('#status-msg').text(msg).removeAttr('title');
   };
 
   // ---- whole-team actions (JA2 1.0x) -----------------------------------------------------
@@ -1316,37 +1298,40 @@
     return this.game ? this.game.mercs.filter(function (m) { return m.isOnPlayerTeam() && m.items; }) : [];
   };
 
-  /** @param kind 'repair', 'reload' or 'dress' */
-  App.prototype.teamAction = function (kind) {
+  App.prototype.teamAction = function () {
     var team = this.team();
     if (!team.length) { return; }
-    var count = 0;
+    var game = this.game;
+    var repaired = 0;
+    var reloaded = 0;
+    var healed = 0;
+    var energized = 0;
+    var changed = false;
     var missingKits = [];
     team.forEach(function (m) {
-      if (kind === 'repair') {
-        count += m.repairAll();
-      } else if (kind === 'reload') {
-        count += m.reloadAll();
-      } else {
-        m.fullDress();
-        var missing = [];
-        [0xCA, 0xCD].forEach(function (id) {
-          if (!m.supplyKit(id)) { missing.push(J.exemplar(id).name); }
-        });
-        if (missing.length) { missingKits.push(m.get('Nickname') + ': ' + missing.join(', ')); }
-        ++count;
+      var result = m.prepareAll(game.actors[game.actorMercs.indexOf(m)]);
+      repaired += result.repaired;
+      reloaded += result.reloaded;
+      if (result.healed) { ++healed; }
+      if (result.energized) { ++energized; }
+      if (result.changed) { changed = true; }
+      if (result.missingKits.length) {
+        missingKits.push(m.get('Nickname') + ': ' + result.missingKits.map(function (id) {
+          return J.exemplar(id).name;
+        }).join(', '));
       }
     });
     if (this.index !== -1) {
       this.setActor(this.game.actors[this.index], this.game.actorMercs[this.index]);
     }
-    if (count > 0) { this.setModified(true); }
+    if (changed) { this.setModified(true); }
     var names = team.map(function (m) { return m.get('Nickname'); }).join(', ');
-    var msg = kind === 'repair' ? 'Repair all: ' + count + ' status value(s) raised to 100%' :
-      kind === 'reload' ? 'Reload all: ' + count + ' gun(s) reloaded' : 'Full Dress all';
-    $('#status-msg').text(msg + ' (' + names + ').');
+    var msg = 'Prepare all: ' + repaired + ' status value(s) raised to 100%; ' +
+      reloaded + ' gun(s) reloaded; ' + healed + ' merc(s) healed; ' + energized + ' merc(s) rested; ' +
+      team.length + ' merc(s) dressed (' + names + ').';
+    $('#status-msg').text(msg).attr('title', msg);
     if (missingKits.length) {
-      messageDialog('Full Dress applied, but no free slot for:\n' + missingKits.join('\n'));
+      messageDialog('Prepare all applied, but no free slot for:\n' + missingKits.join('\n'));
     }
   };
 

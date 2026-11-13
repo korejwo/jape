@@ -96,6 +96,8 @@ async function main() {
   check('Korek traits', (await ev(`$('#stat-panel select[aria-label="Skill1"] option:selected').text()`)) === 'Auto Weapons' &&
     (await ev(`$('#stat-panel select[aria-label="Skill3"] option:selected').text()`)) === 'Night Ops');
   check('1.13 inventory panel shown instead of the 19 slots', await ev(`$('.inv113').is(':visible') && $('.classic-items').is(':hidden')`));
+  check('Prepare all is hidden and disabled for 1.13 saves', await ev(`$('.btn.team[data-team=prepare]').is(':hidden') &&
+    $('.btn.team[data-team=prepare]').prop('disabled')`));
   const rows = await ev(`$('.inv-list .opt').map((i, e) => $(e).find('.slot').text() + ': ' + $(e).find('.name').text()).get()`);
   check('Korek inventory listed', rows.length === 16 && rows[0] === 'Helmet: Steel Helmet' && rows.includes('Hand: Beretta 92F'), rows);
   const slotRow = (n) => `.inv-list .opt:nth-child(${rows.findIndex((r) => r.startsWith(n + ':')) + 1})`;

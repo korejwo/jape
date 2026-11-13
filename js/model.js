@@ -448,6 +448,7 @@
   var STEYR_AUG = 0x14;
   var LAW = 0x33;
   var AUTO_ROCKET_RIFLE = 0x41;
+  var MORTAR_SHELL = 0x8C;
   var CLIP556_HP = 0x5F;
   var CLIP762W_10 = 0x60;
   var MINIROCKETS_HEAP = 0x71;
@@ -519,7 +520,17 @@
   };
 
   J.QUICK_ITEMS = {
-    law: { id: LAW, label: 'LAW ×6', make: function (item) { J.makeLawStack(item, 6); } },
+    law: { id: LAW, label: 'LAW ×6', make: function (item) {
+      J.makeLawStack(item, 6);
+      item.setInt('Weight', 0);
+    } },
+    mortarShell: { id: MORTAR_SHELL, label: 'Mortar Shell ×6', make: function (item) {
+      item.data.fill(0);
+      item.setInt('Item ID', MORTAR_SHELL);
+      item.setInt('Quantity', 6);
+      for (var k = 1; k <= 6; ++k) { item.setInt('Item ' + k + ' %', 100); }
+      item.setInt('Weight', 0);
+    } },
     rifle: { id: AUTO_ROCKET_RIFLE, label: 'Auto Rocket Rifle', make: function (item) { J.makeLoadedGun(item, J.ROCKET_RIFLE); } },
     aug: { id: STEYR_AUG, label: 'Steyr AUG', make: function (item) { J.makeLoadedGun(item, J.STEYR_AUG); } },
     dragunov: { id: DRAGUNOV, label: 'Dragunov', make: function (item) { J.makeLoadedGun(item, J.DRAGUNOV); } }
@@ -575,13 +586,18 @@
   function status(b) { return (b << 24) >> 24; }   // INT8
 
   /**
-   * Raises the status of every item and attachment below 100% to 100%.
+   * Restores Health to Max Health (also in the profile, when supplied) and
+   * raises the status of every item and attachment below 100% to 100%.
    * Which bytes are statuses depends on the item (the OBJECTTYPE union):
    * a magazine's "status" is its rounds (left alone), money and a single gun
    * have one status byte followed by other data, keys have six.
    * @return number of statuses raised
    */
-  Mercenary.prototype.repairAll = function () {
+  Mercenary.prototype.repairAll = function (actor) {
+    var maxHealth = this.getInt('Max Health');
+    if (this.getInt('Health') < maxHealth) {
+      new J.Chain([this, actor]).setInt('Health', maxHealth);
+    }
     var raised = 0;
     this.items.forEach(function (item) {
       var ex = J.exemplar(item.getInt('Item ID'));
@@ -647,6 +663,30 @@
       if (Array.prototype.slice.call(item.data).join() !== before) { ++reloaded; }
     });
     return reloaded;
+  };
+
+  /** Repairs, reloads, dresses and supplies a merc, restoring Health and Energy. */
+  Mercenary.prototype.prepareAll = function (actor) {
+    var before = new Uint8Array(this.data);
+    var health = this.getInt('Health');
+    var result = {
+      repaired: this.repairAll(actor),
+      reloaded: this.reloadAll(),
+      healed: this.getInt('Health') > health,
+      energized: this.getInt('Energy') !== 100 || this.getInt('Max Energy') !== 100,
+      missingKits: [],
+      changed: false
+    };
+    this.setInt('Energy', 100);
+    this.setInt('Max Energy', 100);
+    this.fullDress();
+    [0xCA, 0xCD].forEach(function (id) {
+      if (!this.supplyKit(id)) { result.missingKits.push(id); }
+    }, this);
+    for (var i = 0; i < this.data.length; ++i) {
+      if (this.data[i] !== before[i]) { result.changed = true; break; }
+    }
+    return result;
   };
 
   J.ItemExemplar = ItemExemplar;

@@ -362,6 +362,19 @@ select.field:disabled {
   color: #333333;
 }
 
+#status-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#status-file {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* ---- Dialogs (OptionDialog / JapeAbout) ---------------------------------------------------- */
 
 .modal-overlay {

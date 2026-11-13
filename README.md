@@ -24,6 +24,18 @@ Supported saves:
 | JA2 1.13, 2008 builds | 103 | stats |
 | JA2 1.13 release **v5** ([1dot13/source](https://github.com/1dot13/source) tag `v5`) | 185 | stats, traits, records, replacing items |
 
+## Reference sources and current game
+
+[JA2 Stracciatella](https://github.com/ja2-stracciatella/ja2-stracciatella)
+provides source code used as a reference for classic JA2 mechanics. In the local
+workspace, `..\tools\strac` contains source excerpts and `..\tools\ja2data`
+contains externalized game data.
+
+As of 2026-11-11, the user primarily plays the game installed at
+`F:\SteamLibrary\steamapps\common\ja2_wildfire`. The directory name alone does
+not identify the executable version or save format: verify these before
+assuming that Stracciatella or JA2 1.13 v5 mechanics and layouts apply.
+
 ## JA2 1.13 v5 saves (version 185)
 
 - Character profiles and soldiers are read with the layouts of the v5 sources
@@ -105,17 +117,11 @@ Supported saves:
   the value, up to 100, and the increase in brackets by the same number of points.
 - JA2 1.0x saves: the custom buttons sit in their own column right of the
   inventory slots (the window is therefore wider than the original, about 1040 px):
-  Full Dress, Add AUG, Add LAW, Add rifle and Add dragunov for the selected
-  merc, then (after a gap) Repair all, Reload all and Full Dress all for the
-  whole team.
-- **Full Dress** puts on Coated
-  Spectra Helmet, Coated Spectra Vest with 4 Ceramic Plates, Coated Spectra
-  Leggings, Night Vision Goggles and Extended Ear, all at 100%, replacing what
-  is in those five slots. The stored weight is set as the game computes it
-  (item + attachments, JA2 1.12 weights). The game uses one plate at a time and
-  removes a plate when it is destroyed, so the next one takes over.
-- JA2 1.0x saves: **Add LAW** creates 6 LAWs stacked in one slot, **Add rifle**
-  an Auto Rocket Rifle loaded with 255 HEAP minirockets, **Add AUG** a Steyr AUG
+  Add AUG, Add LAW, Add mortar shell, Add rifle and Add dragunov for the selected
+  merc, then **Prepare all** for the whole team. The separate Repair all,
+  Reload all, Full Dress all and individual Full Dress buttons have been removed.
+- JA2 1.0x saves: **Add LAW** creates 6 weightless LAWs stacked in one slot,
+  **Add rifle** an Auto Rocket Rifle loaded with 255 HEAP minirockets, **Add AUG** a Steyr AUG
   loaded with 255 rounds of 5.56mm HP, **Add dragunov** a Dragunov loaded with
   255 rounds of its default magazine, 7.62mm WP Magazine (AP); all three guns
   get Laser Scope and Sniper Scope attached at 100%, no silencer (the game applies attachment bonuses by
@@ -124,24 +130,37 @@ Supported saves:
   the slot rules forbid (armour and head gear slots, a hand blocked by a
   two-handed weapon). They are built the way the game creates items
   (`CreateGun`/`CreateItems`): status 100, not fingerprint-locked (the rifle
-  locks to the first merc who uses it), weight as the game computes it.
+  locks to the first merc who uses it), weight as the game computes it, except
+  for Add LAW, which deliberately stores weight 0.
   The game itself allows one LAW per slot and only in big pockets or hands;
   firing a LAW turns the whole object in the hand into one discarded LAW, so
   fire LAWs one at a time, not from the stack of 6.
+- JA2 1.0x saves: **Add mortar shell** creates 6 weightless Mortar Shells at 100%
+  stacked in one slot, in the first allowed empty slot searching from the last one.
 - JA2 1.0x saves, whole team (every merc marked `*`, whoever is selected):
-  **Repair all** raises every item and attachment status below 100% to 100%
-  (magazines are left alone: their "status" is the rounds); **Reload all**
-  renews the magazine of every single magazine-fed gun: 255 rounds (the most
+  **Prepare all** combines repair, reload and Full Dress in one click. It
+  raises every item and attachment status below 100% to 100%
+  (magazines are left alone: their "status" is the rounds) and restores each
+  merc's Health to their existing Max Health, without changing Max Health or
+  Health Inc. It also restores both Energy and Max Energy to 100, removing
+  the lowered energy limit from fatigue. It renews the magazine of every single
+  magazine-fed gun: 255 rounds (the most
   the game's ubGunShotsLeft holds), ammo status 100% (a negative status means a
   jammed gun, so this also clears a jam) and **Ammo Variety 8** (knife). The
   loaded magazine is kept; a gun with no magazine or one of another calibre
-  gets its default magazine. The weight is updated. **Full Dress all** is Full
-  Dress for everyone, plus a Medical Kit and a Camouflage Kit at 100%: existing
+  gets its default magazine. The weight is updated. Everyone receives Coated
+  Spectra Helmet, Coated Spectra Vest with 4 Ceramic Plates, Coated Spectra
+  Leggings, Night Vision Goggles and Extended Ear at 100%, replacing the items
+  in those five slots. Armour weights include attachments; the game uses one
+  plate at a time and removes it when destroyed, so the next takes over.
+  Prepare all also supplies a Medical Kit and a Camouflage Kit at 100%: existing
   kits are refilled without adding duplicates; otherwise a new kit is put in
   the first empty pocket that fits, searching from the last one, or an
   unblocked left hand. Medical Kits require big pockets; Camouflage Kits also
   fit small pockets. If no suitable slot is free, a message lists the mercs
   and the kits they could not receive; other inventory items are not overwritten.
+  The selected merc's stats and inventory are refreshed; an already prepared
+  team does not mark the save modified again.
 - Ammo Variety (`ubGunAmmoType`) is what decides the effect of a shot, not the
   magazine in the Ammo field. Type 8 (knife) is not stopped by vests and
   leggings (helmets and Ceramic Plates still count), and a hit to the head or
