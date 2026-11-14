@@ -130,7 +130,7 @@
 
   /** @param options array of {id, name}; must include id 0 (None). */
   ChoiceView.prototype.setOptions = function (options) {
-    var key = options.map(function (o) { return o.id; }).join(',');
+    var key = JSON.stringify(options.map(function (o) { return [o.id, o.name]; }));
     if (key === this.optionKey) { return; }
     this.optionKey = key;
     var frag = document.createDocumentFragment();
@@ -456,17 +456,18 @@
   /** Rebuilds the drop-down lists so they only offer items that fit. */
   ItemDetailPanel.prototype.updateOptions = function () {
     var item = this.item;
+    var catalog = item ? item.catalog : J.CLASSIC_CATALOG;
     var currentId = item ? item.getInt('Item ID') : 0;
     var allowed = SLOT_FILTERS[this.slot] || null;
-    this.idView.setOptions(J.ITEM_LIST.filter(function (ex) {
+    this.idView.setOptions(catalog.itemList.filter(function (ex) {
       return ex.id === 0 || ex.id === currentId || !allowed || allowed(ex);
     }));
 
-    var ex = J.exemplar(currentId);
+    var ex = catalog.exemplar(currentId);
     var category = ex ? ex.category : -1;
 
     var currentAmmo = item ? item.getInt('Ammo ID') : 0;
-    this.ammoIdView.setOptions(J.AMMO_LIST.filter(function (a) {
+    this.ammoIdView.setOptions(catalog.ammoList.filter(function (a) {
       if (category !== CAT.WEAPON || a.id === 0) { return true; }
       return a.id === currentAmmo || ex.compatibleAmmoIds.indexOf(a.id) !== -1;
     }));
@@ -475,7 +476,7 @@
       category === CAT.BODY_ARMOR ? ARMOR_ATTACHMENT_CATS : null;
     this.attachmentIdViews.forEach(function (v, k) {
       var current = item ? item.getInt('Attachment ' + (k + 1) + ' ID') : 0;
-      v.setOptions(J.ATTACHMENT_LIST.filter(function (a) {
+      v.setOptions(catalog.attachmentList.filter(function (a) {
         return a.id === 0 || a.id === current || !attachmentCats || attachmentCats.indexOf(a.category) !== -1;
       }));
     });
@@ -549,7 +550,7 @@
     } else if (view === this.ammoIdView) {
       // New magazine type: set its variety and fill it up.
       if (newValue !== 0 && newValue !== oldValue) {
-        ex = J.exemplar(item.getInt('Ammo ID'));
+        ex = item.catalog.exemplar(item.getInt('Ammo ID'));
         if (ex) {
           this.ammoVarietyView.setValue(ex.ammoVariety);
           this.ammoQuantityView.setValue(ex.ammoCapacity);
@@ -634,7 +635,7 @@
       row.forEach(function (slot, c) { SLOT_NAMES[slot] = 'Backpack ' + (r + 1) + '-' + (c + 1); });
     });
 
-    // Custom buttons: rows 1-5 act on the selected merc, row 7 on the whole team.
+    // Custom buttons: rows 1-6 act on the selected merc, row 7 on the whole team.
     this.$addLaw = $('<button type="button" class="btn action add-law">').text('Add LAW')
       .attr('title', 'Create 6 weightless LAWs in one slot: the first empty slot, searching from the last one')
       .css({ gridRow: '2', gridColumn: '4' })
@@ -658,7 +659,10 @@
         'the first empty slot, searching from the last one')
       .css({ gridRow: '5', gridColumn: '4' })
       .on('click', function () { self.addQuickItem('dragunov'); });
-    $slots.append(this.$addLaw, this.$addMortarShell, this.$addRifle, this.$addAug, this.$addDragunov);
+    this.$addV94 = $('<button type="button" class="btn action add-v94">').text('Add V-94')
+      .css({ gridRow: '6', gridColumn: '4' })
+      .on('click', function () { self.addQuickItem('v94'); });
+    $slots.append(this.$addLaw, this.$addMortarShell, this.$addRifle, this.$addAug, this.$addDragunov, this.$addV94);
 
     this.onTeamAction = null;
     this.$teamButtons = $('<button type="button" class="btn action team">').text('Prepare all')
@@ -693,6 +697,19 @@
     [this.$addLaw, this.$addMortarShell, this.$addRifle, this.$addAug, this.$addDragunov].forEach(function ($b) {
       $b.toggle(mode !== 'unsupported').prop('disabled', mode !== 'edit' || !this.merc);
     }, this);
+    this.$addV94.toggle(!!this.merc && this.merc.catalog.wildfire)
+      .prop('disabled', mode !== 'edit' || !this.merc || !this.merc.catalog.wildfire);
+    var recipes = J.quickItems(this.merc ? this.merc.catalog : null);
+    var quickButtons = [
+      { button: this.$addRifle, key: 'rifle' },
+      { button: this.$addAug, key: 'aug' },
+      { button: this.$addDragunov, key: 'dragunov' }
+    ];
+    if (recipes.v94) { quickButtons.push({ button: this.$addV94, key: 'v94' }); }
+    quickButtons.forEach(function (entry) {
+      entry.button.attr('title', 'Create ' + recipes[entry.key].label +
+        ' with 255 rounds, Laser Scope and Sniper Scope: the first empty slot, searching from the last one');
+    });
     this.selectSlot(SLOT_ROWS[0][0]);
   };
 
@@ -704,8 +721,12 @@
    */
   ItemPanel.prototype.addQuickItem = function (key) {
     if (this.mode !== 'edit' || !this.merc) { return; }
-    var quick = J.QUICK_ITEMS[key];
-    var ex = J.exemplar(quick.id);
+    var quick = J.quickItems(this.merc.catalog)[key];
+    if (!quick) {
+      messageDialog('This item is not available for this save format.');
+      return;
+    }
+    var ex = this.merc.catalog.exemplar(quick.id);
     var slot = -1;
     for (var s = this.merc.items.length - 1; s >= 0; --s) {
       if (this.merc.items[s].getInt('Item ID') !== 0) { continue; }
@@ -744,7 +765,7 @@
 
   /** Veto for item changes: error message, or null when allowed. */
   ItemPanel.prototype.checkItem = function (slot, id) {
-    var ex = J.exemplar(id);
+    var ex = this.merc ? this.merc.catalog.exemplar(id) : null;
     var left = this.itemAt(M.LEFT_HAND);
     if (slot === M.RIGHT_HAND && ex && ex.twoHanded && left && left.getInt('Item ID') !== 0) {
       return ex.name + ' is a two-handed weapon.\nEmpty the left hand first.';
@@ -1317,7 +1338,7 @@
       if (result.changed) { changed = true; }
       if (result.missingKits.length) {
         missingKits.push(m.get('Nickname') + ': ' + result.missingKits.map(function (id) {
-          return J.exemplar(id).name;
+          return m.catalog.exemplar(id).name;
         }).join(', '));
       }
     });

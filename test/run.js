@@ -18,7 +18,7 @@ const path = require('path');
 const vm = require('vm');
 
 const WEB = path.resolve(__dirname, '..');
-const SCRIPTS = ['codetables.js', 'items.js', 'alg.js', 'fields.js', 'weights.js', 'model.js', 'savegame.js', 'savegame113.js', 'items113_v5.js', 'items113.js'];
+const SCRIPTS = ['codetables.js', 'items.js', 'items_wildfire604.js', 'alg.js', 'fields.js', 'weights.js', 'model.js', 'savegame.js', 'savegame113.js', 'items113_v5.js', 'items113.js'];
 
 function loadEngine() {
   const ctx = vm.createContext({});
@@ -112,6 +112,16 @@ function firstLineDiff(a, b) {
   return null;
 }
 
+/** The legacy fixtures are Wildfire; use an in-memory Classic header for Java-era checks. */
+function classicFixture(bytes) {
+  if (new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0, true) > 99) return bytes;
+  const out = new Uint8Array(bytes);
+  out.fill(0, 4, 20);
+  const build = 'Build 99.09.22';
+  for (let i = 0; i < build.length; i++) out[4 + i] = build.charCodeAt(i);
+  return out;
+}
+
 // ---- unit checks -------------------------------------------------------------------
 
 let failures = 0;
@@ -183,7 +193,9 @@ const files = fs.existsSync(savesDir) ? fs.readdirSync(savesDir).filter((f) => /
 if (files.length === 0) { console.log('SKIP no .sav files in ' + savesDir); }
 
 for (const f of files) {
-  const orig = new Uint8Array(fs.readFileSync(path.join(savesDir, f)));
+  const source = new Uint8Array(fs.readFileSync(path.join(savesDir, f)));
+  if (new DataView(source.buffer).getUint32(0, true) <= 99) testCatalogs(f, source);
+  const orig = classicFixture(source);
   const tag = (f.match(/(\d+)\.sav$/i) || [])[1];
 
   let game;
@@ -219,7 +231,7 @@ for (const f of files) {
         actorByNick(reloaded, 'Fox').getInt('Battles') === 65535);
     }
     if (refDir && tag && fs.existsSync(path.join(refDir, 'java_edit_' + tag + '.sav'))) {
-      const javaOut = new Uint8Array(fs.readFileSync(path.join(refDir, 'java_edit_' + tag + '.sav')));
+      const javaOut = classicFixture(new Uint8Array(fs.readFileSync(path.join(refDir, 'java_edit_' + tag + '.sav'))));
       const at = firstDiff(out, javaOut);
       check(f + ': edited save byte-identical to Java', at === -1, 'first difference at byte ' + at);
       if (reloaded) {
@@ -237,6 +249,96 @@ for (const f of files) {
   } else if (edited.version === J.SaveGame113.VERSION) {
     test113(f, edited);
   }
+}
+
+function testCatalogs(f, bytes) {
+  const actual = J.SaveGame.load(new Uint8Array(bytes), f);
+  check(f + ': original edition-aware save is byte-identical', firstDiff(actual.save(), bytes) === -1);
+  const classic = J.SaveGame.load(classicFixture(bytes), 'classic.sav');
+  check(f + ': Classic does not offer Wildfire-only items',
+    [66, 67, 68, 160, 247].every((id) => classic.itemCatalog.exemplar(id) === null) &&
+    J.quickItems(classic.itemCatalog).v94 === undefined);
+  if (!actual.itemCatalog.wildfire) return;
+
+  check(f + ': version 99 is identified as Wildfire by its build, not the save number',
+    actual.build === 'Build 25.10.05' && actual.formatLabel === 'JA2 Wildfire 6.04');
+  const wf = actual.itemCatalog;
+  check(f + ': Wildfire weapons and remapped silencers have their real names',
+    wf.exemplar(66).name === 'VSS' && wf.exemplar(67).name === 'V-94' &&
+    wf.exemplar(68).name === 'FN F2000' && wf.exemplar(65).name === 'AS VAL' &&
+    [265, 269, 305, 306].every((id) => wf.exemplar(id).category === J.CAT.WEAPON_ATTACHMENT) &&
+    wf.exemplar(307).name === 'Red Dot Sight' && wf.exemplar(50).category === J.CAT.WEAPON_ATTACHMENT);
+  check(f + ': Wildfire includes the missing items but not empty IDs or flamethrower fuel',
+    wf.exemplar(160).name === 'LAW Rocket' && wf.exemplar(247).name === 'Discarded LAW' &&
+    [69, 70, 115, 268, 328, 350].every((id) => wf.exemplar(id) === null));
+  check(f + ': Wildfire ammo uses executable calibres, capacities and types',
+    wf.exemplar(67).compatibleAmmoIds.join() === '111,112,113' && wf.exemplar(67).defaultAmmoId === 111 &&
+    wf.exemplar(66).compatibleAmmoIds.join() === '104,105' && wf.exemplar(66).defaultAmmoId === 104 &&
+    wf.exemplar(68).compatibleAmmoIds.join() === '92,93,94,95' &&
+    wf.exemplar(93).ammoCapacity === 99 && wf.exemplar(111).ammoVariety === 3 &&
+    wf.exemplar(112).ammoVariety === 9 && wf.exemplar(113).ammoVariety === 10);
+
+  const merc = actual.getMercByNick('Shadow');
+  const slot = J.Mercenary.BACKPACK_4_3;
+  const item = merc.items[slot];
+  const otherItems = merc.items.map((it) => new Uint8Array(it.data));
+  item.data.fill(0);
+  item.set('Item ID', 'V-94');
+  item.setInt('Quantity', 1);
+  item.setInt('Item 1 %', 100);
+  item.set('Ammo ID', '12.7mm Magazine, 5 HE');
+  item.setInt('Ammo Quantity', 4);
+  item.setInt('Ammo %', 100);
+  item.setInt('Weight', J.objectWeight(item));
+  const out = actual.save();
+  const back = J.SaveGame.load(out, f);
+  const saved = back.getMercByNick('Shadow').items[slot];
+  check(f + ': selecting a Wildfire weapon and ammo survives save + reload',
+    saved.getInt('Item ID') === 67 && saved.get('Item ID') === 'V-94' &&
+    saved.getInt('Ammo ID') === 112 && saved.getInt('Ammo Quantity') === 4 &&
+    saved.getInt('Weight') === 127);
+  check(f + ': Wildfire item edit preserves the header and other inventory slots',
+    firstDiff(out.subarray(0, 20), bytes.subarray(0, 20)) === -1 &&
+    back.getMercByNick('Shadow').items.every((it, i) => i === slot || firstDiff(it.data, otherItems[i]) === -1));
+  merc.reloadAll();
+  check(f + ': reload recognizes V-94 and keeps its compatible 12.7mm magazine',
+    item.getInt('Ammo ID') === 112 && item.getInt('Ammo Quantity') === 255 &&
+    item.getInt('Ammo Variety') === 8 && item.getInt('Weight') === 127);
+  const recipes = J.quickItems(wf);
+  const quick = ['rifle', 'aug', 'dragunov', 'v94'].map((key) => {
+    const it = new J.Item(new Uint8Array(36), wf);
+    recipes[key].make(it);
+    return [it.getInt('Item ID'), it.getInt('Ammo ID'), it.getInt('Ammo Variety'), it.getInt('Ammo Quantity')];
+  });
+  check(f + ': Wildfire quick guns use existing weapons and their own magazines',
+    JSON.stringify(quick) === JSON.stringify([[65, 105, 3, 255], [20, 94, 1, 255], [18, 78, 3, 255], [67, 111, 3, 255]]), quick);
+  recipes.v94.make(item);
+  const quickV94 = J.SaveGame.load(actual.save(), f).getMercByNick('Shadow').items[slot];
+  check(f + ': quick V-94 keeps 255 AP rounds, both scopes and its game weight after save + reload',
+    quickV94.getInt('Item ID') === 67 && quickV94.getInt('Quantity') === 1 &&
+    quickV94.getInt('Item 1 %') === 100 && quickV94.getInt('Ammo ID') === 111 &&
+    quickV94.getInt('Ammo Quantity') === 255 && quickV94.getInt('Ammo Variety') === 3 &&
+    quickV94.getInt('Ammo %') === 100 && quickV94.getInt('Unknown 4') === 200 &&
+    quickV94.getInt('Attachment 1 ID') === 241 && quickV94.getInt('Attachment 1 %') === 100 &&
+    quickV94.getInt('Attachment 2 ID') === 208 && quickV94.getInt('Attachment 2 %') === 100 &&
+    quickV94.getInt('Attachment 3 ID') === 0 && quickV94.getInt('Attachment 4 ID') === 0 &&
+    quickV94.getInt('Weight') === 140);
+  check(f + ': loading editions together never changes Classic names or ammo',
+    classic.itemCatalog.exemplar(1).name === 'Glock 17' && wf.exemplar(1).name === 'Calico M950' &&
+    J.exemplar(65).name === 'Auto Rocket Rifle' && J.exemplar(111).name === 'Minirockets, AP');
+
+  const unknownBuild = new Uint8Array(bytes);
+  unknownBuild[17] = '6'.charCodeAt(0);
+  const unknown = J.SaveGame.load(unknownBuild, 'unknown.sav');
+  check(f + ': unrecognized builds do not receive the Wildfire catalog', unknown.itemCatalog === J.CLASSIC_CATALOG);
+  const oldVersion = new Uint8Array(bytes);
+  oldVersion[0] = 98;
+  check(f + ': older save versions do not receive Wildfire-only items',
+    J.SaveGame.load(oldVersion, 'old.sav').itemCatalog === J.CLASSIC_CATALOG);
+  const foreignItem = J.SaveGame.load(classicFixture(out), 'foreign.sav');
+  check(f + ': unknown items already in a Classic save are preserved without extending its catalog',
+    foreignItem.getMercByNick('Shadow').items[slot].getInt('Item ID') === 67 &&
+    foreignItem.itemCatalog.exemplar(67) === null && firstDiff(foreignItem.save(), classicFixture(out)) === -1);
 }
 
 /** JA2 1.0x: Full Dress on the first team member, save, reload. */

@@ -97,6 +97,8 @@
     this.bytes = bytes;
     this.filename = filename;
     this.version = 0;
+    this.build = '';
+    this.itemCatalog = J.CLASSIC_CATALOG;
     this.codeTable = null;
     this.codeTableIdx = -1;
     this.codeTableSubIdx = -1;
@@ -132,6 +134,14 @@
     }
     this.layout = layout;
     this.formatLabel = this.version <= 99 ? 'JA2 1.0x' : 'JA2 1.13 (2008)';
+    for (var h = 4; h < 20 && this.bytes[h]; ++h) {
+      this.build += String.fromCharCode(this.bytes[h]);
+    }
+    if (this.version === 99 && this.build === 'Build 25.10.05') {
+      if (!J.WILDFIRE_CATALOG) { throw new FormatError('Wildfire item data is not loaded.'); }
+      this.itemCatalog = J.WILDFIRE_CATALOG;
+      this.formatLabel = 'JA2 Wildfire 6.04';
+    }
 
     r.seek(layout.uiNumGameEvents_Offset);
     var eventCount = r.readIntLE();
@@ -229,7 +239,7 @@
       }
 
       var merc = new J.Mercenary(this.bytes.subarray(start, r.pos), this.version,
-        trailingOffset, inventorySum, this.codeTable, slot);
+        trailingOffset, inventorySum, this.codeTable, slot, this.itemCatalog);
       merc.validateChecksum();
       this.mercs.push(merc);
     }

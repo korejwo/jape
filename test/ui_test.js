@@ -93,6 +93,8 @@ async function main() {
   console.log('     showOpenFilePicker on file:// = ' + fsa + ', isSecureContext = ' + (await ev('window.isSecureContext')));
   check('Save/Close disabled without a file', await ev(`$('[data-cmd=save]').prop('disabled') && $('[data-cmd=close]').prop('disabled')`));
   check('Add mortar shell disabled without a file', await ev(`$('.btn.add-mortar-shell').prop('disabled')`));
+  check('Add V-94 hidden and disabled without a Wildfire save',
+    await ev(`$('.btn.add-v94').is(':hidden') && $('.btn.add-v94').prop('disabled')`));
   check('Prepare all disabled without a file', await ev(`$('.btn.team[data-team=prepare]').prop('disabled')`));
   await shot('01-empty');
 
@@ -104,7 +106,12 @@ async function main() {
   await ev(`$('.menu').removeClass('open')`);
 
   // ---- load the save
-  const b64 = fs.readFileSync(saveFile).toString('base64');
+  const source = fs.readFileSync(saveFile);
+  const classicFixture = Buffer.from(source);
+  classicFixture.fill(0, 4, 20);
+  classicFixture.write('Build 99.09.22', 4, 'ascii');
+  const b64 = classicFixture.toString('base64');
+  const wildfireB64 = source.toString('base64');
   const loaded = await ev(`JAPE.app.openBytes(Uint8Array.from(atob('${b64}'), c => c.charCodeAt(0)), ${JSON.stringify(path.basename(saveFile))})`);
   check('save loads in UI', loaded === true);
   const labels = await ev(`$('#actor-list .opt').map((i, e) => $(e).text()).get()`);
@@ -142,6 +149,8 @@ async function main() {
   await click(`#actor-${idx('*Qt')}`);
   await shot('04-qt');
   check('Qt stats editable', await ev(`$('#stat-panel input').toArray().every(e => !e.disabled)`));
+  check('Add V-94 hidden and disabled for Classic',
+    await ev(`$('.btn.add-v94').is(':hidden') && $('.btn.add-v94').prop('disabled')`));
   check('status clear for team member', (await ev(`$('#status-msg').text()`)) === '');
   const btnText = await ev(`$('.slots .btn').map((i, e) => $(e).text()).get()`);
   check('Qt helmet button', btnText.includes('Steel Helmet') && btnText.includes('Flak Jacket') && btnText.includes('Ruger Mini-14'), btnText);
@@ -216,6 +225,8 @@ async function main() {
   check('head gear slot: only head gear', c.slice(1).every((x) => x === C.HEAD_GEAR) && c.length === 7, c.length);
   await click(slotBtn(8));
   check('backpack slot: all items', (await opts('.detail select[aria-label="Item ID"]')).length === 302);
+  check('Classic list excludes Wildfire weapons and missing Wildfire items',
+    (await opts('.detail select[aria-label="Item ID"]')).every((id) => ![66, 67, 68, 160, 247].includes(id)));
 
   // body armor attachments: only ceramic plates
   await click(slotBtn(4));
@@ -601,6 +612,103 @@ async function main() {
   await click('.dialog-buttons .btn');
   check('denied save keeps the modified flag', (await denied) === false && (await ev('JAPE.app.modified')) === true);
 
+  // The supplied version-99 fixtures are really Wildfire; also exercise their original headers.
+  if (source.readUInt32LE(0) === 99 && source.subarray(4, 20).toString('ascii').split('\0')[0] === 'Build 25.10.05') {
+    await ev(`JAPE.app.openBytes(Uint8Array.from(atob('${wildfireB64}'), c => c.charCodeAt(0)), 'Wildfire.sav')`);
+    check('Wildfire build is displayed in the status bar', /JA2 Wildfire 6.04/.test(await ev(`$('#status-file').text()`)));
+    await click(`#actor-${idx('*Shadow')}`);
+    await click(slotBtn(5));
+    const wildfireWeapons = await opts('.detail select[aria-label="Item ID"]');
+    check('Wildfire-only guns are selectable and the old rocket rifle name is absent',
+      [66, 67, 68].every((id) => wildfireWeapons.includes(id)) &&
+      (await ev(`$('.detail select[aria-label="Item ID"] option[value=65]').text()`)) === 'AS VAL');
+    await choose('.detail select[aria-label="Item ID"]', 67);
+    const v94 = await ev(`(() => { const it = JAPE.app.game.getMercByNick('Shadow').items[5];
+      return [it.getInt('Item ID'), it.getInt('Ammo ID'), it.getInt('Ammo Quantity'), it.getInt('Ammo Variety')]; })()`);
+    check('V-94 loads its real default 12.7mm magazine', JSON.stringify(v94) === JSON.stringify([67, 111, 5, 3]), v94);
+    check('V-94 ammo list contains only 12.7mm magazines',
+      JSON.stringify(await opts('.detail select[aria-label="Ammo ID"]')) === JSON.stringify([0, 111, 112, 113]));
+    check('V-94 is named in its slot and blocks the second hand',
+      (await ev(`$(${JSON.stringify(slotBtn(5))}).text()`)) === 'V-94' &&
+      (await ev(`$(${JSON.stringify(slotBtn(7))}).prop('disabled')`)));
+    await choose('.detail select[aria-label="Ammo ID"]', 112);
+    check('Wildfire HE magazine sets the correct shot type and survives save + reload', await ev(`(() => {
+      const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'wf.sav'), it = g.getMercByNick('Shadow').items[5];
+      return it.get('Item ID') === 'V-94' && it.getInt('Ammo ID') === 112 &&
+        it.get('Ammo ID') === '12.7mm Magazine, 5 HE' && it.getInt('Ammo Variety') === 9;
+    })()`));
+    await ev(`(() => { window.__wfEdited = JAPE.app.game.save(); return true; })()`);
+    await shot('16-wildfire-v94');
+    await click(slotBtn(8));
+    const wildfireItems = await opts('.detail select[aria-label="Item ID"]');
+    check('Wildfire list includes LAW Rocket and Discarded LAW but excludes fuel and empty IDs',
+      [160, 247].every((id) => wildfireItems.includes(id)) && ![69, 70, 115, 268, 350].some((id) => wildfireItems.includes(id)));
+    await click('.btn.add-rifle');
+    check('Wildfire Add rifle creates AS VAL with a 9x39mm magazine', await ev(`(() => {
+      const p = JAPE.app.itemPanel, it = p.merc.items[p.current];
+      return it.get('Item ID') === 'AS VAL' && it.getInt('Ammo ID') === 105 && it.getInt('Ammo Variety') === 3;
+    })()`));
+    check('Add V-94 fits immediately below Add dragunov', await ev(`(() => {
+      const button = document.querySelector('.btn.add-v94');
+      const v94 = button.getBoundingClientRect();
+      const dragunov = document.querySelector('.btn.add-dragunov').getBoundingClientRect();
+      return !button.disabled && v94.width > 0 && v94.left === dragunov.left &&
+        v94.top === dragunov.bottom && button.scrollWidth <= button.clientWidth;
+    })()`));
+    const beforeV94 = await ev(`JAPE.app.game.getMercByNick('Shadow').items.map(it => it.getInt('Item ID'))`);
+    await ev('JAPE.app.setModified(false)');
+    await click('.btn.add-v94');
+    const afterV94 = await ev(`JAPE.app.game.getMercByNick('Shadow').items.map(it => it.getInt('Item ID'))`);
+    const v94Slot = afterV94.findIndex((id, i) => id !== beforeV94[i]);
+    check('Add V-94 uses the last empty slot without replacing other items',
+      v94Slot === beforeV94.lastIndexOf(0) && afterV94[v94Slot] === 67 &&
+      afterV94.every((id, i) => i === v94Slot || id === beforeV94[i]));
+    check('Add V-94 supplies 255 AP rounds, Laser Scope and Sniper Scope and survives save + reload',
+      await ev(`(() => {
+        const app = JAPE.app, game = JAPE.SaveGame.load(app.game.save(), 'v94.sav');
+        const it = game.getMercByNick('Shadow').items[${v94Slot}];
+        return app.modified && it.get('Item ID') === 'V-94' && it.getInt('Quantity') === 1 &&
+          it.getInt('Item 1 %') === 100 && it.getInt('Ammo ID') === 111 && it.getInt('Ammo Quantity') === 255 &&
+          it.getInt('Ammo Variety') === 3 && it.getInt('Ammo %') === 100 && it.getInt('Unknown 4') === 200 &&
+          it.getInt('Attachment 1 ID') === 241 && it.getInt('Attachment 1 %') === 100 &&
+          it.getInt('Attachment 2 ID') === 208 && it.getInt('Attachment 2 %') === 100 &&
+          it.getInt('Attachment 3 ID') === 0 && it.getInt('Attachment 4 ID') === 0 && it.getInt('Weight') === 140;
+      })()`));
+    check('V-94 quick-item details show 255 rounds and do not overflow the window',
+      (await ev(`$('.detail input[aria-label="Ammo Quantity"]').val()`)) === '255' &&
+      (await ev(`$('.detail select[aria-label="Item ID"] option:selected').text()`)) === 'V-94' &&
+      (await ev(`document.scrollingElement.scrollHeight <= innerHeight && document.scrollingElement.scrollWidth <= innerWidth`)));
+    await shot('17-wildfire-add-v94');
+    await click(slotBtn(5));
+    await choose('.detail select[aria-label="Item ID"]', 1);
+    check('Wildfire Calico gets a 50-round magazine',
+      (await ev(`$('.detail input[aria-label="Ammo Quantity"]').val()`)) === '50' &&
+      (await ev(`$('.detail select[aria-label="Item ID"] option:selected').text()`)) === 'Calico M950');
+    await ev(`JAPE.app.openBytes(Uint8Array.from(atob('${b64}'), c => c.charCodeAt(0)), 'Classic.sav')`);
+    await click(`#actor-${idx('*Qt')}`);
+    await click(slotBtn(5));
+    await choose('.detail select[aria-label="Item ID"]', 1);
+    check('switching back to Classic restores gun and magazine labels even for the same option IDs',
+      (await ev(`$('.detail select[aria-label="Item ID"] option:selected').text()`)) === 'Glock 17' &&
+      (await ev(`$('.detail select[aria-label="Ammo ID"] option[value=71]').text()`)) === '9mm Pistol Magazine' &&
+      (await ev(`$('.detail input[aria-label="Ammo Quantity"]').val()`)) === '15');
+    check('switching back to Classic removes Wildfire-only choices',
+      !(await opts('.detail select[aria-label="Item ID"]')).some((id) => [66, 67, 68].includes(id)) &&
+      (await ev(`$('.btn.add-v94').is(':hidden') && $('.btn.add-v94').prop('disabled')`)));
+    await ev(`(() => {
+      window.__foreignItem = new Uint8Array(window.__wfEdited);
+      window.__foreignItem.set(Uint8Array.from(atob('${b64}'), c => c.charCodeAt(0)).subarray(0, 20));
+      return JAPE.app.openBytes(window.__foreignItem, 'ForeignItem.sav');
+    })()`);
+    await click(`#actor-${idx('*Shadow')}`);
+    await click(slotBtn(5));
+    check('Classic preserves an existing unknown ID without offering other Wildfire-only guns',
+      (await ev(`$('.detail select[aria-label="Item ID"] option:selected').text()`)) === 'Unknown (67)' &&
+      !(await opts('.detail select[aria-label="Item ID"]')).some((id) => [66, 68].includes(id)) &&
+      (await ev(`JAPE.app.game.save().every((v, i) => v === window.__foreignItem[i])`)));
+    await ev('delete window.__wfEdited; delete window.__foreignItem');
+  }
+
   check('no console errors', errors.length === 0, errors);
 
   // ---- Fallback for browsers without the File System Access API (Firefox, Safari)
@@ -630,7 +738,7 @@ async function main() {
     await sleep(300);
     const vm = require('vm');
     const ctx = vm.createContext({});
-    for (const f of ['codetables', 'items', 'alg', 'fields', 'model', 'savegame']) vm.runInContext(fs.readFileSync(path.join(webDir, 'js', f + '.js'), 'utf8'), ctx);
+    for (const f of ['codetables', 'items', 'items_wildfire604', 'alg', 'fields', 'model', 'savegame']) vm.runInContext(fs.readFileSync(path.join(webDir, 'js', f + '.js'), 'utf8'), ctx);
     const g = ctx.JAPE.SaveGame.load(new Uint8Array(fs.readFileSync(dl)), 'dl');
     check('downloaded save loads in Node with the edit', g.getMercByNick('Qt').getInt('Wisdom') === 99);
   }

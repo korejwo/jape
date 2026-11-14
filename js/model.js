@@ -43,10 +43,6 @@
 
   var ATTACHMENT_CATS = [CAT.WEAPON_ATTACHMENT, CAT.ARMOR_ATTACHMENT, CAT.GRENADE, CAT.DETONATOR];
 
-  J.ITEMS = J.ITEM_ROWS.map(function (row) { return new ItemExemplar(row); });
-  J.ITEM_BY_ID = {};
-  J.ITEMS.forEach(function (ex) { J.ITEM_BY_ID[ex.id] = ex; });
-
   /**
    * Corrections to the original JAPE item table (items.js is a faithful
    * conversion of it). Ammo types (ubAmmoType, set as "Ammo Variety" when a
@@ -55,10 +51,6 @@
    * 0 regular, 3 super AP, 9 HE. The 0x70 minirockets are HE, not HP.
    */
   var AMMO_TYPE_FIXES = { 0x68: 3, 0x6B: 0, 0x6F: 3, 0x70: 9 };
-  Object.keys(AMMO_TYPE_FIXES).forEach(function (id) {
-    J.ITEM_BY_ID[id].ammoVariety = AMMO_TYPE_FIXES[id];
-  });
-  J.ITEM_BY_ID[0x70].name = 'Minirockets, HE';
 
   /**
    * Calibre of a magazine, read from its name ("7.62mm NATO Magazine, 20"
@@ -67,30 +59,6 @@
    * of the gun's own size (e.g. M24: 5-round magazines only).
    */
   var CALIBRE = /^(\.\d+|\d+(?:\.\d+)?mm(?: WP| NATO)?|12 Gauge|CAWS|Minirockets|Tranquilizer Dart)/;
-  J.ITEMS.forEach(function (ex) {
-    if (ex.category === CAT.AMMO) {
-      var m = CALIBRE.exec(ex.name);
-      ex.calibre = m ? m[1] : ex.name;
-    }
-  });
-  J.ITEMS.forEach(function (ex) {
-    if (ex.category !== CAT.WEAPON) { return; }
-    var calibres = ex.ammoIds
-      .map(function (id) { return J.ITEM_BY_ID[id]; })
-      .filter(function (a) { return a && a.category === CAT.AMMO; })
-      .map(function (a) { return a.calibre; });
-    /** Magazine loaded into a new gun of this type. */
-    ex.defaultAmmoId = 0;
-    for (var i = 0; i < ex.ammoIds.length; ++i) {
-      var a = J.ITEM_BY_ID[ex.ammoIds[i]];
-      if (a && a.category === CAT.AMMO) { ex.defaultAmmoId = a.id; break; }
-    }
-    /** Every magazine of the gun's calibre(s). */
-    ex.compatibleAmmoIds = J.ITEMS
-      .filter(function (a) { return a.category === CAT.AMMO && calibres.indexOf(a.calibre) !== -1; })
-      .map(function (a) { return a.id; });
-  });
-
   /**
    * Two-handed weapons (bTwoHanded in the JA2 1.12 item data, as published
    * by the JA2 Stracciatella project in assets/externalized/weapons.json).
@@ -104,24 +72,63 @@
   /** Creature and vehicle attacks: "weapons" a merc cannot hold. */
   var NON_PLAYER_WEAPON_IDS = [0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x34, 0x35, 0x39, 0x3A, 0x3B, 0x3C];
 
-  J.ITEMS.forEach(function (ex) {
-    ex.twoHanded = TWO_HANDED_IDS.indexOf(ex.id) !== -1;
-    /** Firearm or melee weapon a merc can hold in the hand. */
-    ex.handWeapon = (ex.category === CAT.WEAPON || ex.category === CAT.MELEE_WEAPON) &&
-      NON_PLAYER_WEAPON_IDS.indexOf(ex.id) === -1;
-  });
-  J.ItemNameTable = new J.NameTable(J.ITEMS.map(function (ex) { return [ex.id, ex.name]; }));
-
-  /** Lists used by the original choice boxes (all start with None). */
-  J.ITEM_LIST = J.ITEMS.slice();
-  J.AMMO_LIST = J.ITEMS.filter(function (ex) { return ex.id === 0 || ex.category === CAT.AMMO; });
-  J.ATTACHMENT_LIST = J.ITEMS.filter(function (ex) {
-    return ex.id === 0 || ATTACHMENT_CATS.indexOf(ex.category) !== -1;
-  });
-
-  J.exemplar = function (id) {
-    return Object.prototype.hasOwnProperty.call(J.ITEM_BY_ID, id) ? J.ITEM_BY_ID[id] : null;
+  function ItemCatalog(rows, wildfire) {
+    var self = this;
+    this.items = rows.map(function (row) { return new ItemExemplar(row); });
+    this.byId = {};
+    this.weights = wildfire ? {} : J.WEIGHTS_112;
+    this.wildfire = !!wildfire;
+    this.items.forEach(function (ex, i) {
+      self.byId[ex.id] = ex;
+      if (wildfire) {
+        ex.calibre = rows[i][7];
+        ex.twoHanded = rows[i][8];
+        ex.handWeapon = rows[i][9];
+        self.weights[ex.id] = rows[i].slice(10, 12);
+      } else {
+        if (Object.prototype.hasOwnProperty.call(AMMO_TYPE_FIXES, ex.id)) {
+          ex.ammoVariety = AMMO_TYPE_FIXES[ex.id];
+        }
+        if (ex.id === 0x70) { ex.name = 'Minirockets, HE'; }
+        if (ex.category === CAT.AMMO) {
+          var m = CALIBRE.exec(ex.name);
+          ex.calibre = m ? m[1] : ex.name;
+        }
+        ex.twoHanded = TWO_HANDED_IDS.indexOf(ex.id) !== -1;
+        ex.handWeapon = (ex.category === CAT.WEAPON || ex.category === CAT.MELEE_WEAPON) &&
+          NON_PLAYER_WEAPON_IDS.indexOf(ex.id) === -1;
+      }
+    });
+    this.items.forEach(function (ex) {
+      if (ex.category !== CAT.WEAPON) { return; }
+      var magazines = ex.ammoIds.map(function (id) { return self.exemplar(id); })
+        .filter(function (a) { return a && a.category === CAT.AMMO; });
+      var calibres = magazines.map(function (a) { return a.calibre; });
+      ex.defaultAmmoId = magazines.length ? magazines[0].id : 0;
+      ex.compatibleAmmoIds = self.items.filter(function (a) {
+        return a.category === CAT.AMMO && calibres.indexOf(a.calibre) !== -1;
+      }).map(function (a) { return a.id; });
+    });
+    this.nameTable = new J.NameTable(this.items.map(function (ex) { return [ex.id, ex.name]; }));
+    this.itemList = this.items.slice();
+    this.ammoList = this.items.filter(function (ex) { return ex.id === 0 || ex.category === CAT.AMMO; });
+    this.attachmentList = this.items.filter(function (ex) {
+      return ex.id === 0 || ATTACHMENT_CATS.indexOf(ex.category) !== -1;
+    });
+  }
+  ItemCatalog.prototype.exemplar = function (id) {
+    return Object.prototype.hasOwnProperty.call(this.byId, id) ? this.byId[id] : null;
   };
+
+  J.CLASSIC_CATALOG = new ItemCatalog(J.ITEM_ROWS, false);
+  J.WILDFIRE_CATALOG = J.WILDFIRE_604_DATA ? new ItemCatalog(J.WILDFIRE_604_DATA.rows, true) : null;
+  J.ITEMS = J.CLASSIC_CATALOG.items;
+  J.ITEM_BY_ID = J.CLASSIC_CATALOG.byId;
+  J.ItemNameTable = J.CLASSIC_CATALOG.nameTable;
+  J.ITEM_LIST = J.CLASSIC_CATALOG.itemList;
+  J.AMMO_LIST = J.CLASSIC_CATALOG.ammoList;
+  J.ATTACHMENT_LIST = J.CLASSIC_CATALOG.attachmentList;
+  J.exemplar = function (id) { return J.CLASSIC_CATALOG.exemplar(id); };
 
   // ---- Item (OBJECTTYPE, 0x24 bytes, JA2 1.0x only) ------------------------------
 
@@ -162,10 +169,21 @@
   };
 
   /** An inventory slot. `data` is a live view into the soldier's data. */
-  function Item(data) { J.Structure.call(this, ITEM_FIELDS, data); }
+  function Item(data, catalog) {
+    this.catalog = catalog || J.CLASSIC_CATALOG;
+    if (!this.catalog.itemFields) {
+      this.catalog.itemFields = {};
+      Object.keys(ITEM_FIELDS).forEach(function (name) {
+        var field = ITEM_FIELDS[name];
+        this.catalog.itemFields[name] = field.kind === 'choice' ?
+          new J.ChoiceField(field.base, this.catalog.nameTable) : field;
+      }, this);
+    }
+    J.Structure.call(this, this.catalog.itemFields, data);
+  }
   Item.prototype = Object.create(J.Structure.prototype);
   Item.LENGTH = 0x24;
-  Item.prototype.exemplar = function () { return J.exemplar(this.getInt('Item ID')); };
+  Item.prototype.exemplar = function () { return this.catalog.exemplar(this.getInt('Item ID')); };
 
   // ---- Actor (MERCPROFILESTRUCT) -------------------------------------------------
 
@@ -294,11 +312,12 @@
    * `raw`: ubActive byte + SOLDIERTYPE + trailing data, as in the file.
    * `slot`: index in the game's soldier array (0-19 = the player's team).
    */
-  function Mercenary(raw, version, trailingOffset, inventorySum, table, slot) {
+  function Mercenary(raw, version, trailingOffset, inventorySum, table, slot, catalog) {
     this.version = version;
     this.trailingOffset = trailingOffset;
     this.inventorySum = inventorySum;
     this.slot = slot;
+    this.catalog = catalog || J.CLASSIC_CATALOG;
     this.allData = new Uint8Array(raw);
     this.items = null;
 
@@ -308,7 +327,7 @@
       this.items = [];
       for (var i = 0; i < ITEM_COUNT; ++i) {
         var off = FIRST_ITEM_OFFSET + i * Item.LENGTH;
-        this.items.push(new Item(this.data.subarray(off, off + Item.LENGTH)));
+        this.items.push(new Item(this.data.subarray(off, off + Item.LENGTH), this.catalog));
       }
     } else {
       this.data = new Uint8Array(raw.subarray(1));
@@ -415,13 +434,15 @@
 
   // ---- Weight ----------------------------------------------------------------------
 
-  /** Item weight (0.1 kg) of the JA2 1.12 data (js/weights.js); 0 if unknown. */
-  J.itemWeight = function (id) {
-    var w = J.WEIGHTS_112 && J.WEIGHTS_112[id];
+  /** Item weight (0.1 kg) from the selected game's data; 0 if unknown. */
+  J.itemWeight = function (id, catalog) {
+    var weights = (catalog || J.CLASSIC_CATALOG).weights;
+    var w = weights && weights[id];
     return w ? w[0] : 0;
   };
-  function perPocket(id) {
-    var w = J.WEIGHTS_112 && J.WEIGHTS_112[id];
+  function perPocket(id, catalog) {
+    var weights = (catalog || J.CLASSIC_CATALOG).weights;
+    var w = weights && weights[id];
     return w ? w[1] : 0;
   }
 
@@ -432,12 +453,14 @@
    */
   J.objectWeight = function (item) {
     var id = item.getInt('Item ID');
-    var weight = J.itemWeight(id);
-    if (perPocket(id) <= 1) {
-      for (var k = 1; k <= 4; ++k) { weight += J.itemWeight(item.getInt('Attachment ' + k + ' ID')); }
-      var ex = J.exemplar(id);
+    var weight = J.itemWeight(id, item.catalog);
+    if (perPocket(id, item.catalog) <= 1) {
+      for (var k = 1; k <= 4; ++k) {
+        weight += J.itemWeight(item.getInt('Attachment ' + k + ' ID'), item.catalog);
+      }
+      var ex = item.exemplar();
       if (ex && ex.category === CAT.WEAPON && ex.compatibleAmmoIds.length && item.data[6] > 0) {
-        weight += J.itemWeight(item.getInt('Ammo ID'));   // ubGunShotsLeft > 0
+        weight += J.itemWeight(item.getInt('Ammo ID'), item.catalog);   // ubGunShotsLeft > 0
       }
     }
     return weight;
@@ -536,6 +559,36 @@
     dragunov: { id: DRAGUNOV, label: 'Dragunov', make: function (item) { J.makeLoadedGun(item, J.DRAGUNOV); } }
   };
 
+  J.quickItems = function (catalog) {
+    if (!catalog || !catalog.wildfire) { return J.QUICK_ITEMS; }
+    if (!catalog.quickItems) {
+      catalog.quickItems = { law: J.QUICK_ITEMS.law, mortarShell: J.QUICK_ITEMS.mortarShell };
+      [
+        { key: 'rifle', id: 0x41, hp: false },
+        { key: 'aug', id: 0x14, hp: true },
+        { key: 'dragunov', id: 0x12, hp: false },
+        { key: 'v94', id: 0x43, hp: false }
+      ].forEach(function (recipe) {
+        var ex = catalog.exemplar(recipe.id);
+        var ammo = catalog.exemplar(ex.defaultAmmoId);
+        if (recipe.hp) {
+          ammo = ex.compatibleAmmoIds.map(function (id) { return catalog.exemplar(id); })
+            .filter(function (a) { return a.ammoVariety === AMMO_HP && a.ammoCapacity === ammo.ammoCapacity; })[0];
+        }
+        catalog.quickItems[recipe.key] = {
+          id: ex.id, label: ex.name,
+          make: function (item) {
+            J.makeLoadedGun(item, {
+              id: ex.id, ammo: ammo.id, ammoType: ammo.ammoVariety, rounds: 255,
+              attachments: [LASER_SCOPE, SNIPER_SCOPE]
+            });
+          }
+        };
+      });
+    }
+    return catalog.quickItems;
+  };
+
   /** Puts on the Full Dress set: new items, 100%, plates attached at 100%. */
   Mercenary.prototype.fullDress = function () {
     var items = this.items;
@@ -566,7 +619,7 @@
 
     var right = this.items[Mercenary.RIGHT_HAND].exemplar();
     // Items with ubPerPocket = 0 cannot use small pockets.
-    var lastSlot = perPocket(id) > 0 ? this.items.length - 1 : Mercenary.BACKPACK_4_3;
+    var lastSlot = perPocket(id, this.catalog) > 0 ? this.items.length - 1 : Mercenary.BACKPACK_4_3;
     for (var s = lastSlot; s >= Mercenary.LEFT_HAND; --s) {
       var item = this.items[s];
       if (item.getInt('Item ID') !== 0) { continue; }
@@ -600,7 +653,7 @@
     }
     var raised = 0;
     this.items.forEach(function (item) {
-      var ex = J.exemplar(item.getInt('Item ID'));
+      var ex = item.exemplar();
       if (!ex || ex.id === 0) { return; }
       var count = Math.max(1, item.data[2]);    // ubNumberOfObjects
       var statuses;
@@ -650,7 +703,7 @@
   Mercenary.prototype.reloadAll = function () {
     var reloaded = 0;
     this.items.forEach(function (item) {
-      var ex = J.exemplar(item.getInt('Item ID'));
+      var ex = item.exemplar();
       if (!ex || ex.category !== CAT.WEAPON || !ex.defaultAmmoId || item.data[2] !== 1) { return; }
       var before = Array.prototype.slice.call(item.data).join();
       if (ex.compatibleAmmoIds.indexOf(item.getInt('Ammo ID')) === -1) {
