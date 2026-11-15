@@ -668,7 +668,8 @@
     this.$teamButtons = $('<button type="button" class="btn action team">').text('Prepare all')
       .attr({ 'data-team': 'prepare', title: 'Prepare the whole team (*): repair items and attachments to 100%, ' +
         'restore Health to Max Health and Energy / Max Energy to 100, reload guns with 255 rounds of ammo type 8 (knife), ' +
-        'apply Full Dress, refill or add Medical Kit and Camouflage Kit at 100% in a free slot that fits' })
+        'apply Full Dress with weightless helmet, vest and leggings, ' +
+        'refill or add Medical Kit and Camouflage Kit at 100% in a free slot that fits' })
       .css({ gridRow: '7', gridColumn: '4' })
       .on('click', function () { if (self.onTeamAction) { self.onTeamAction(); } });
     $slots.append(this.$teamButtons);

@@ -213,8 +213,11 @@ python ..\tools\gen_items_wildfire.py F:\SteamLibrary\steamapps\common\ja2_wildf
   gets its default magazine. The weight is updated. Everyone receives Coated
   Spectra Helmet, Coated Spectra Vest with 4 Ceramic Plates, Coated Spectra
   Leggings, Night Vision Goggles and Extended Ear at 100%, replacing the items
-  in those five slots. Armour weights include attachments; the game uses one
-  plate at a time and removes it when destroyed, so the next takes over.
+  in those five slots. The equipped **helmet, vest and leggings store weight 0**,
+  including the vest's attached Ceramic Plates. Head gear, spare armour in
+  pockets and other items keep their existing weight rules. This changes the
+  stored object weights, not the game's item tables. The game uses one plate
+  at a time and removes it when destroyed, so the next takes over.
   Prepare all also supplies a Medical Kit and a Camouflage Kit at 100%: existing
   kits are refilled without adding duplicates; otherwise a new kit is put in
   the first empty pocket that fits, searching from the last one, or an

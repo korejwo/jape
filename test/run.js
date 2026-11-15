@@ -323,6 +323,15 @@ function testCatalogs(f, bytes) {
     quickV94.getInt('Attachment 2 ID') === 208 && quickV94.getInt('Attachment 2 %') === 100 &&
     quickV94.getInt('Attachment 3 ID') === 0 && quickV94.getInt('Attachment 4 ID') === 0 &&
     quickV94.getInt('Weight') === 140);
+  const wildfireTeam = actual.mercs.filter((m) => m.isOnPlayerTeam() && m.items);
+  wildfireTeam.forEach((m) => m.prepareAll(actual.actors[actual.actorMercs.indexOf(m)]));
+  const preparedWildfire = J.SaveGame.load(actual.save(), f);
+  check(f + ': Wildfire preparation saves weightless equipped armour without making head gear weightless',
+    wildfireTeam.every((m) => {
+      const items = preparedWildfire.mercs.find((b) => b.slot === m.slot).items;
+      return [0, 1, 2].every((slot) => items[slot].getInt('Weight') === 0) &&
+        [3, 4].every((slot) => items[slot].getInt('Weight') === J.objectWeight(items[slot]));
+    }));
   check(f + ': loading editions together never changes Classic names or ammo',
     classic.itemCatalog.exemplar(1).name === 'Glock 17' && wf.exemplar(1).name === 'Calico M950' &&
     J.exemplar(65).name === 'Auto Rocket Rifle' && J.exemplar(111).name === 'Minirockets, AP');
@@ -480,6 +489,7 @@ function testRepairReload(f, bytes) {
 /** JA2 1.0x: combined preparation, energy restoration and unchanged read-only records. */
 function testPrepareAll(f, bytes) {
   const game = J.SaveGame.load(bytes, f);
+  const armourSlots = [J.Mercenary.HELMET, J.Mercenary.BODY_ARMOR, J.Mercenary.LEG_ARMOR];
   const team = game.mercs.filter((m) => m.isOnPlayerTeam() && m.items);
   const profiles = team.map((m) => game.actors[game.actorMercs.indexOf(m)]);
   const readonlyMercs = game.mercs.filter((m) => !m.isOnPlayerTeam());
@@ -500,6 +510,11 @@ function testPrepareAll(f, bytes) {
     gun.setInt('Ammo Quantity', 3);
     gun.data[10] = 0xFB;
     if (i === 0) gun.setInt('Ammo ID', 0x71);
+    const spare = m.items[J.Mercenary.BACKPACK_1_3];
+    spare.setInt('Item ID', 0xB6);
+    spare.setInt('Quantity', 1);
+    spare.setInt('Item 1 %', 100);
+    spare.setInt('Weight', J.objectWeight(spare));
   });
   const results = team.map((m, i) => m.prepareAll(profiles[i]));
   const prepared = team.map((m) => new Uint8Array(m.data));
@@ -522,6 +537,13 @@ function testPrepareAll(f, bytes) {
         [0xCA, 0xCD].every((id) => soldier.items.filter((it) => it.getInt('Item ID') === id).length === 1 &&
           soldier.items.find((it) => it.getInt('Item ID') === id).getInt('Item 1 %') === 100);
     }));
+  check(f + ': Prepare all saves weightless equipped armour but preserves spare armour, head gear and gun weights',
+    team.every((m) => {
+      const items = back.mercs.find((b) => b.slot === m.slot).items;
+      return armourSlots.every((slot) => items[slot].getInt('Weight') === 0) &&
+        [J.Mercenary.BACKPACK_1_3, J.Mercenary.HEADGEAR_1, J.Mercenary.HEADGEAR_2, J.Mercenary.RIGHT_HAND]
+          .every((slot) => items[slot].getInt('Weight') === J.objectWeight(items[slot]));
+    }));
   check(f + ': Prepare all restores Health and both Energy fields without changing Max Health or Health Inc',
     team.every((m, i) => {
       const soldier = back.mercs.find((b) => b.slot === m.slot);
@@ -535,6 +557,12 @@ function testPrepareAll(f, bytes) {
     readonlyMercs.every((m, i) => firstDiff(back.mercs.find((b) => b.slot === m.slot).data, readonlyData[i]) === -1) &&
     readonlyProfiles.every((a, i) => firstDiff(back.actors[game.actors.indexOf(a)].data, readonlyProfileData[i]) === -1));
   const merc = team[0];
+  const beforeWeights = new Uint8Array(merc.data);
+  armourSlots.forEach((slot) => merc.items[slot].setInt('Weight', J.objectWeight(merc.items[slot])));
+  const weightless = merc.prepareAll(profiles[0]);
+  check(f + ': Armour weight restoration alone is a change and restores the original prepared record',
+    weightless.changed && !weightless.healed && !weightless.energized &&
+    weightless.repaired === 0 && weightless.reloaded === 0 && firstDiff(merc.data, beforeWeights) === -1);
   const beforeEnergy = new Uint8Array(merc.data);
   merc.setInt('Energy', 37);
   merc.setInt('Max Energy', 65);

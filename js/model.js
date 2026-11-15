@@ -733,6 +733,9 @@
     this.setInt('Energy', 100);
     this.setInt('Max Energy', 100);
     this.fullDress();
+    [Mercenary.HELMET, Mercenary.BODY_ARMOR, Mercenary.LEG_ARMOR].forEach(function (slot) {
+      this.items[slot].setInt('Weight', 0);
+    }, this);
     [0xCA, 0xCD].forEach(function (id) {
       if (!this.supplyKit(id)) { result.missingKits.push(id); }
     }, this);

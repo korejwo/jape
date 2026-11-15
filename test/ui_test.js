@@ -539,11 +539,29 @@ async function main() {
   await click(slotBtn(4));
   const vestView = await ev(`[1, 2, 3, 4].map(k => $('.detail select[aria-label="Attachment ' + k + ' ID"] option:selected').text() + ' ' + $('.detail input[aria-label="Attachment ' + k + ' %"]').val())`);
   check('Prepare all vest shown with 4 Ceramic Plates at 100%', vestView.every((v) => v === 'Ceramic Plates 100'), vestView);
-  check('vest weight 7.7 kg', (await ev(`$('.detail input[aria-label="Weight"]').val()`)) === '77');
+  check('Prepare all vest weight is zero including its Ceramic Plates',
+    (await ev(`$('.detail input[aria-label="Weight"]').val()`)) === '0');
   const dressedBack = await ev(`(() => { const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'x'); const it = g.getMercByNick('Qt').items;
     return [0, 1, 2, 3, 4].map(k => it[k].get('Item ID') + '/' + it[k].getInt('Item 1 %') + '/' + it[k].getInt('Weight')).concat([it[1].get('Attachment 4 ID')]); })()`);
-  check('Prepare all armour survives save + reload', JSON.stringify(dressedBack) === JSON.stringify(['Coated Spectra Helmet/100/13', 'Coated Spectra Vest/100/77', 'Coated Spectra Leggings/100/35', 'Night Vision Goggles/100/9', 'Extended Ear/100/9', 'Ceramic Plates']), dressedBack);
+  check('Prepare all weightless armour survives save + reload without changing head gear weights',
+    JSON.stringify(dressedBack) === JSON.stringify(['Coated Spectra Helmet/100/0', 'Coated Spectra Vest/100/0', 'Coated Spectra Leggings/100/0', 'Night Vision Goggles/100/9', 'Extended Ear/100/9', 'Ceramic Plates']), dressedBack);
   await shot('14-prepare-armour');
+  const beforeArmourReset = await ev(`Array.from(JAPE.app.game.getMercByNick('Qt').data)`);
+  await type('.detail input[aria-label="Weight"]', '77');
+  await key('Tab', 'Tab', 9);
+  await ev('JAPE.app.setModified(false)');
+  await prepare();
+  await click(slotBtn(4));
+  const afterArmourReset = await ev(`({
+    modified: JAPE.app.modified,
+    weight: $('.detail input[aria-label="Weight"]').val(),
+    data: Array.from(JAPE.app.game.getMercByNick('Qt').data)
+  })`);
+  const armourResetDiff = afterArmourReset.data
+    .map((b, i) => b === beforeArmourReset[i] ? null : [i, beforeArmourReset[i], b]).filter(Boolean);
+  check('Prepare all marks a weight-only change and restores the original merc data',
+    afterArmourReset.modified && afterArmourReset.weight === '0' && armourResetDiff.length === 0,
+    { modified: afterArmourReset.modified, weight: afterArmourReset.weight, diff: armourResetDiff });
   await click('.slots .btn[title="Backpack 4-3: Medical Kit"]');
   check('Medical Kit appears in the selected merc\'s inventory details',
     (await ev(`$('.detail select[aria-label="Item ID"] option:selected').text()`)) === 'Medical Kit' &&
@@ -684,6 +702,16 @@ async function main() {
     check('Wildfire Calico gets a 50-round magazine',
       (await ev(`$('.detail input[aria-label="Ammo Quantity"]').val()`)) === '50' &&
       (await ev(`$('.detail select[aria-label="Item ID"] option:selected').text()`)) === 'Calico M950');
+    await prepare();
+    check('Wildfire Prepare all saves weightless armour for the whole team and preserves head gear weights',
+      await ev(`(() => {
+        const g = JAPE.SaveGame.load(JAPE.app.game.save(), 'weightless-wildfire.sav');
+        return JAPE.app.team().every(m => {
+          const items = g.getMercByNick(m.get('Nickname')).items;
+          return [0, 1, 2].every(slot => items[slot].getInt('Weight') === 0) &&
+            [3, 4].every(slot => items[slot].getInt('Weight') === JAPE.objectWeight(items[slot]));
+        });
+      })()`));
     await ev(`JAPE.app.openBytes(Uint8Array.from(atob('${b64}'), c => c.charCodeAt(0)), 'Classic.sav')`);
     await click(`#actor-${idx('*Qt')}`);
     await click(slotBtn(5));
